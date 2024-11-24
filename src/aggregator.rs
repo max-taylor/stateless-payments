@@ -1,29 +1,54 @@
-use bitcoincore_rpc::bitcoin::{merkle_tree::PartialMerkleTree, TxMerkleNode, Txid};
+use std::collections::HashMap;
 
-use crate::errors::StatelessBitcoinResult;
+use rs_merkle::{Hasher, MerkleTree};
+use sha2::{Digest, Sha256};
+
+use crate::types::U8_32;
+
+#[derive(Clone)]
+pub struct Sha256Algorithm {}
+
+impl Hasher for Sha256Algorithm {
+    type Hash = U8_32;
+
+    fn hash(data: &[u8]) -> U8_32 {
+        let mut hasher = Sha256::new();
+
+        hasher.update(data);
+        <[u8; 32]>::from(hasher.finalize())
+    }
+}
 
 pub struct Aggregator {
-    pub txids: Vec<Txid>,
+    pub txid_to_index: HashMap<U8_32, usize>,
+    pub merkle_tree: MerkleTree<Sha256Algorithm>,
 }
 
 impl Aggregator {
     pub fn new() -> Aggregator {
-        Aggregator { txids: Vec::new() }
+        Aggregator {
+            txid_to_index: HashMap::new(),
+            merkle_tree: MerkleTree::new(),
+        }
     }
 
-    pub fn add_transaction(&mut self, txid: Txid) {
-        self.txids.push(txid);
+    pub fn add_transaction(&mut self, txid: U8_32) {
+        let index = self.merkle_tree.leaves_len();
+        self.txid_to_index.insert(txid, index);
+        self.merkle_tree.insert(txid).commit();
     }
 
-    pub fn generate_merkle_root(&self) -> StatelessBitcoinResult<TxMerkleNode> {
-        let matches: Vec<bool> = vec![true; self.txids.len()];
+    pub fn root(&self) -> Option<U8_32> {
+        self.merkle_tree.root()
+    }
 
-        let tree = PartialMerkleTree::from_txids(&self.txids, &matches);
+    pub fn get_merkle_proofs_for_txid(&self, txid: U8_32) -> Option<U8_32> {
+        let index = self.txid_to_index.get(&txid)?;
 
-        let mut matches_out = Vec::new();
-        let mut indexes_out = Vec::new();
-        let merkle_root = tree.extract_matches(&mut matches_out, &mut indexes_out)?;
-
-        Ok(merkle_root)
+        self.merkle_tree
+            .proof(&[*index])
+            .proof_hashes()
+            .first()
+            .cloned()
     }
 }

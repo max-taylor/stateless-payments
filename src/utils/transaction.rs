@@ -1,12 +1,8 @@
-use bitcoincore_rpc::{
-    bitcoin::{
-        hashes::{sha256d, Hash},
-        Txid,
-    },
-    jsonrpc::serde_json,
-};
+use bitcoincore_rpc::jsonrpc::serde_json;
 use bls_signatures::{PublicKey, Serialize};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use stateless_bitcoin_l2::types::U8_32;
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
 pub struct SimpleTransaction {
@@ -38,8 +34,11 @@ where
     PublicKey::from_bytes(&bytes).map_err(serde::de::Error::custom)
 }
 
-impl Into<Txid> for SimpleTransaction {
-    fn into(self) -> Txid {
-        sha256d::Hash::hash(&serde_json::to_vec(&self).unwrap()).into()
+impl Into<U8_32> for SimpleTransaction {
+    fn into(self) -> U8_32 {
+        let mut hasher = Sha256::new();
+        hasher.update(&serde_json::to_vec(&self).unwrap());
+
+        hasher.finalize().into()
     }
 }

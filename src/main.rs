@@ -23,7 +23,7 @@ fn main() -> StatelessBitcoinResult<()> {
     let (txid, _) = bob.construct_transaction(mary.public_key, 100, salt);
     aggregator.add_transaction(txid);
 
-    let merkle_root = aggregator.generate_merkle_root()?;
+    let merkle_root = aggregator.root();
     // TODO: Provide the merkle root, merkle proof to bob to verify and sign the merkle root
 
     println!("Hello, world!");
