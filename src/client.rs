@@ -1,12 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Read};
 
 use bitcoincore_rpc::bitcoin::key::rand::thread_rng;
-use bls_signatures::{PrivateKey, PublicKey};
+use bls_signatures::{PrivateKey, PublicKey, Signature};
 use rs_merkle::MerkleProof;
 use sha2::Sha256;
 use stateless_bitcoin_l2::types::U8_32;
 
 use crate::{
+    aggregator::Sha256Algorithm,
     errors::StatelessBitcoinResult,
     utils::{hashing::hash_tx_hash_with_salt, transaction::SimpleTransaction},
 };
@@ -70,34 +71,25 @@ impl Client {
 
         Ok(())
     }
-}
 
-/// Verifies if a transaction hash `tx_hash` is part of the Merkle tree rooted at `merkle_root`
-/// by using `merkle_proof`, a list of hashes that represent the path to the root.
-///
-/// # Arguments
-/// * `tx_hash` - The hash of the transaction we want to verify.
-/// * `merkle_proof` - The proof elements (hashes) leading to the root of the Merkle tree.
-/// * `merkle_root` - The root of the Merkle tree.
-///
-/// # Returns
-/// * `bool` - Returns `true` if the proof is valid, otherwise `false`.
-fn verify_merkle_proof(tx_hash: U8_32, merkle_proof: Vec<U8_32>, merkle_root: U8_32) -> bool {
-    // Convert U8_32 types to byte arrays for use with rs_merkle
-    let tx_hash_bytes: [u8; 32] = tx_hash.into();
-    let merkle_root_bytes: [u8; 32] = merkle_root.into();
-    let proof_hashes: Vec<[u8; 32]> = merkle_proof.into_iter().map(|hash| hash.into()).collect();
+    pub fn validate_and_sign_transaction(
+        &self,
+        merkle_root: U8_32,
+        merkle_proof: MerkleProof<Sha256Algorithm>,
+        txid: U8_32,
+        txid_index: usize,
+        total_txs: usize,
+    ) -> StatelessBitcoinResult<Signature> {
+        if !self.transaction_history.contains_key(&txid) {
+            return Err(anyhow::anyhow!("Transaction not found"));
+        }
 
-    // Create a MerkleProof object using rs_merkle
-    let proof = MerkleProof::<Sha256>::new(proof_hashes);
+        if !merkle_proof.verify(merkle_root, &[txid_index], &[txid], total_txs) {
+            return Err(anyhow::anyhow!("Invalid transaction"));
+        }
 
-    // Verify that `tx_hash` leads to `merkle_root` using the given proof
-    proof
-        .verify(
-            &merkle_root_bytes,
-            &tx_hash_bytes,
-            // Index of the transaction in the Merkle tree (this needs to be known or provided)
-            0, // Replace `0` with the actual index of tx_hash in the Merkle tree if known
-        )
-        .is_ok()
+        let signature = self.private_key.sign(&txid);
+
+        Ok(signature)
+    }
 }
