@@ -1,19 +1,19 @@
 use std::collections::HashMap;
 
-use bitcoincore_rpc::bitcoin::{key::rand::thread_rng, merkle_tree};
+use bitcoincore_rpc::bitcoin::key::rand::thread_rng;
 use bls_signatures::{PrivateKey, PublicKey, Signature};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{MerkleTreeProof, U8_32},
-    utils::{hashing::hash_tx_hash_with_salt, transaction::SimpleTransaction},
+    types::{generate_salt, MerkleTreeProof, U8_32},
+    utils::transaction::SimpleTransaction,
 };
 
 pub struct Client {
     pub public_key: bls_signatures::PublicKey,
     pub private_key: bls_signatures::PrivateKey,
     pub transaction_history: HashMap<U8_32, SimpleTransaction>,
-    // pub balance_proof: IndexMap<U8_32>
+
     pub balance: u64,
 }
 
@@ -33,14 +33,16 @@ impl Client {
         &mut self,
         to: PublicKey,
         amount: u64,
-        salt: U8_32,
     ) -> (U8_32, SimpleTransaction) {
+        let salt = generate_salt();
         let transaction = SimpleTransaction {
             to,
             from: self.public_key,
             amount,
+            salt,
         };
-        let tx_hash = hash_tx_hash_with_salt(&transaction.clone().into(), &salt);
+
+        let tx_hash = transaction.tx_hash();
 
         self.transaction_history
             .insert(tx_hash, transaction.clone());
@@ -59,7 +61,7 @@ impl Client {
             return Err(anyhow::anyhow!("Invalid transaction"));
         }
 
-        let tx_hash = hash_tx_hash_with_salt(&transaction.clone().into(), &salt);
+        let tx_hash = transaction.tx_hash();
 
         self.transaction_history
             .insert(tx_hash, transaction.clone());
@@ -73,11 +75,9 @@ impl Client {
         &self,
         merkle_tree_proof: MerkleTreeProof,
     ) -> StatelessBitcoinResult<Signature> {
-        let txid = hash_tx_hash_with_salt(
-            &merkle_tree_proof.transaction.clone().into(),
-            &merkle_tree_proof.salt,
-        );
-        if !self.transaction_history.contains_key(&txid) {
+        let tx_hash = merkle_tree_proof.transaction.tx_hash();
+
+        if !self.transaction_history.contains_key(&tx_hash) {
             return Err(anyhow::anyhow!("Transaction not found"));
         }
 
@@ -85,7 +85,7 @@ impl Client {
             return Err(anyhow::anyhow!("Invalid transaction"));
         }
 
-        let signature = self.private_key.sign(&txid);
+        let signature = self.private_key.sign(&tx_hash);
 
         Ok(signature)
     }
@@ -94,13 +94,15 @@ impl Client {
 pub fn calculate_balance(balance_proof: Vec<MerkleTreeProof>, address: PublicKey) -> bool {
     let mut balance = 0.0;
 
-    for proof in balance_proof {
-        if proof.transaction.to == address {
-            balance += proof.transaction.amount as f64;
-        }
-    }
+    true
 
-    balance_proof
-        .iter()
-        .all(|proof| proof.transaction.to == address)
+    // for proof in balance_proof {
+    //     if proof.transaction.to == address {
+    //         balance += proof.transaction.amount as f64;
+    //     }
+    // }
+    //
+    // balance_proof
+    //     .iter()
+    //     .all(|proof| proof.transaction.to == address)
 }

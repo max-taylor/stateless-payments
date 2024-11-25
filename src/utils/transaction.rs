@@ -18,6 +18,7 @@ pub struct SimpleTransaction {
     )]
     pub from: PublicKey,
     pub amount: u64,
+    pub salt: U8_32,
 }
 
 pub fn serialize_public_key<S>(key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
@@ -39,6 +40,18 @@ impl Into<U8_32> for SimpleTransaction {
     fn into(self) -> U8_32 {
         let mut hasher = Sha256::new();
         hasher.update(&serde_json::to_vec(&self).unwrap());
+
+        hasher.finalize().into()
+    }
+}
+
+impl SimpleTransaction {
+    // Calculate the hash of the transaction including the salt
+    pub fn tx_hash(&self) -> U8_32 {
+        let txhash: U8_32 = self.clone().into();
+        let mut hasher = Sha256::new();
+        hasher.update(&txhash);
+        hasher.update(self.salt);
 
         hasher.finalize().into()
     }

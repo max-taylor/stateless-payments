@@ -18,8 +18,8 @@ fn main() -> StatelessBitcoinResult<()> {
     let alice = Client::new();
     let mary = Client::new();
 
-    let (_, to_alice_tx) = bob.construct_transaction(alice.public_key, 100, salt);
-    let (_, to_mary_tx) = bob.construct_transaction(mary.public_key, 100, salt);
+    let (_, to_alice_tx) = bob.construct_transaction(alice.public_key, 100);
+    let (_, to_mary_tx) = bob.construct_transaction(mary.public_key, 100);
 
     aggregator.add_transaction(&to_alice_tx);
     aggregator.add_transaction(&to_mary_tx);

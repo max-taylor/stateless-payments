@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     errors::StatelessBitcoinResult,
     types::{generate_salt, MerkleTreeProof, TransferBlock, U8_32},
-    utils::{hashing::hash_tx_hash_with_salt, transaction::SimpleTransaction},
+    utils::transaction::SimpleTransaction,
 };
 
 #[derive(Clone)]
@@ -34,7 +34,6 @@ pub struct TxMetadata {
 pub struct Aggregator {
     pub txid_to_index: HashMap<U8_32, TxMetadata>,
     pub merkle_tree: MerkleTree<Sha256Algorithm>,
-    pub salt: U8_32,
 
     pub txid_to_signature: HashMap<U8_32, Signature>,
 }
@@ -42,7 +41,6 @@ pub struct Aggregator {
 impl Aggregator {
     pub fn new() -> Aggregator {
         Aggregator {
-            salt: generate_salt(),
             txid_to_index: HashMap::new(),
             merkle_tree: MerkleTree::new(),
             txid_to_signature: HashMap::new(),
@@ -51,15 +49,15 @@ impl Aggregator {
 
     pub fn add_transaction(&mut self, transaction: &SimpleTransaction) {
         let index = self.merkle_tree.leaves_len();
-        let txid = hash_tx_hash_with_salt(&transaction.clone().into(), &self.salt);
+        let tx_hash = transaction.tx_hash();
         self.txid_to_index.insert(
-            txid,
+            tx_hash,
             TxMetadata {
                 index,
                 public_key: transaction.to,
             },
         );
-        self.merkle_tree.insert(txid).commit();
+        self.merkle_tree.insert(tx_hash).commit();
     }
 
     pub fn root(&self) -> StatelessBitcoinResult<U8_32> {
@@ -80,10 +78,10 @@ impl Aggregator {
         &self,
         transaction: &SimpleTransaction,
     ) -> StatelessBitcoinResult<MerkleTreeProof> {
-        let txid = hash_tx_hash_with_salt(&transaction.clone().into(), &self.salt);
+        let tx_hash = transaction.tx_hash();
         let TxMetadata { index, .. } = self
             .txid_to_index
-            .get(&txid)
+            .get(&tx_hash)
             .ok_or(anyhow!("Transaction not found"))?;
 
         let proof = self.merkle_tree.proof(&[*index]);
@@ -92,7 +90,6 @@ impl Aggregator {
             proof,
             root: self.root()?,
             transaction: transaction.clone(),
-            salt: self.salt,
             index: *index,
             total_leaves: self.merkle_tree.leaves_len(),
         };
@@ -135,11 +132,8 @@ impl Aggregator {
 mod tests {
 
     use crate::{
-        aggregator::Aggregator,
-        client::Client,
-        errors::StatelessBitcoinResult,
-        types::MerkleTreeProof,
-        utils::{hashing::hash_tx_hash_with_salt, transaction::SimpleTransaction},
+        aggregator::Aggregator, client::Client, errors::StatelessBitcoinResult,
+        types::MerkleTreeProof, utils::transaction::SimpleTransaction,
     };
 
     #[test]
@@ -149,8 +143,7 @@ mod tests {
 
         let transactions = (0..10)
             .map(|i| {
-                let (_, transaction) =
-                    bob.construct_transaction(bob.public_key, i * 100, aggregator.salt);
+                let (_, transaction) = bob.construct_transaction(bob.public_key, i * 100);
                 transaction
             })
             .collect::<Vec<SimpleTransaction>>();
