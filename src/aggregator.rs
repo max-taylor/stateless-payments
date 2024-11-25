@@ -32,25 +32,25 @@ pub struct TxMetadata {
 }
 
 pub struct Aggregator {
-    pub txid_to_index: HashMap<U8_32, TxMetadata>,
+    pub tx_hash_to_metadata: HashMap<U8_32, TxMetadata>,
     pub merkle_tree: MerkleTree<Sha256Algorithm>,
 
-    pub txid_to_signature: HashMap<U8_32, Signature>,
+    pub tx_hash_to_signature: HashMap<U8_32, Signature>,
 }
 
 impl Aggregator {
     pub fn new() -> Aggregator {
         Aggregator {
-            txid_to_index: HashMap::new(),
+            tx_hash_to_metadata: HashMap::new(),
             merkle_tree: MerkleTree::new(),
-            txid_to_signature: HashMap::new(),
+            tx_hash_to_signature: HashMap::new(),
         }
     }
 
     pub fn add_transaction(&mut self, transaction: &SimpleTransaction) {
         let index = self.merkle_tree.leaves_len();
         let tx_hash = transaction.tx_hash();
-        self.txid_to_index.insert(
+        self.tx_hash_to_metadata.insert(
             tx_hash,
             TxMetadata {
                 index,
@@ -64,10 +64,10 @@ impl Aggregator {
         self.merkle_tree.root().ok_or(anyhow!("No transactions"))
     }
 
-    pub fn get_index_for_txid(&self, txid: U8_32) -> StatelessBitcoinResult<usize> {
+    pub fn get_index_for_tx_hash(&self, tx_hash: U8_32) -> StatelessBitcoinResult<usize> {
         let TxMetadata { index, .. } = self
-            .txid_to_index
-            .get(&txid)
+            .tx_hash_to_metadata
+            .get(&tx_hash)
             .cloned()
             .ok_or(anyhow!("Transaction not found"))?;
 
@@ -80,7 +80,7 @@ impl Aggregator {
     ) -> StatelessBitcoinResult<MerkleTreeProof> {
         let tx_hash = transaction.tx_hash();
         let TxMetadata { index, .. } = self
-            .txid_to_index
+            .tx_hash_to_metadata
             .get(&tx_hash)
             .ok_or(anyhow!("Transaction not found"))?;
 
@@ -100,20 +100,21 @@ impl Aggregator {
     pub fn add_signature(&mut self, transaction: SimpleTransaction, signature: Signature) {
         // TODO: validate signature
         //
-        self.txid_to_signature.insert(transaction.into(), signature);
+        self.tx_hash_to_signature
+            .insert(transaction.into(), signature);
     }
 
     pub fn produce_transfer_block(&self) -> StatelessBitcoinResult<TransferBlock> {
         let signatures = self
-            .txid_to_signature
+            .tx_hash_to_signature
             .values()
             .cloned()
             .collect::<Vec<Signature>>();
 
         let public_keys = self
-            .txid_to_signature
+            .tx_hash_to_signature
             .keys()
-            .map(|txid| self.txid_to_index.get(txid).unwrap().public_key)
+            .map(|tx_hash| self.tx_hash_to_metadata.get(tx_hash).unwrap().public_key)
             .collect();
 
         let aggregated_signature = aggregate(&signatures.as_slice())?;

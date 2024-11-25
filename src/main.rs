@@ -12,8 +12,6 @@ mod utils;
 fn main() -> StatelessBitcoinResult<()> {
     let mut aggregator = Aggregator::new();
 
-    let salt = generate_salt();
-
     let mut bob = Client::new();
     let alice = Client::new();
     let mary = Client::new();
