@@ -35,32 +35,11 @@ pub struct TxMetadata {
     signature: Option<Signature>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AggregatorState {
     Open,
     CollectSignatures,
     Finalised(TransferBlock),
-}
-
-impl fmt::Debug for AggregatorState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            AggregatorState::Open => write!(f, "Open"),
-            AggregatorState::CollectSignatures => write!(f, "CollectSignatures"),
-            AggregatorState::Finalised(_) => write!(f, "Finalised"),
-        }
-    }
-}
-
-impl PartialEq for AggregatorState {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (AggregatorState::Open, AggregatorState::Open) => true,
-            (AggregatorState::CollectSignatures, AggregatorState::CollectSignatures) => true,
-            (AggregatorState::Finalised(_), AggregatorState::Finalised(_)) => true,
-            _ => false,
-        }
-    }
 }
 
 pub struct Aggregator {
@@ -233,6 +212,22 @@ mod tests {
 
             assert_eq!(verify_result, true);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_can_finalise_and_produce_valid_transfer_block() -> StatelessBitcoinResult<()> {
+        let mut aggregator = Aggregator::new();
+        let mut bob = Client::new();
+        let alice = Client::new();
+        let mary = Client::new();
+
+        let (_, to_alice_tx) = bob.construct_transaction(alice.public_key, 100)?;
+        let (_, to_mary_tx) = bob.construct_transaction(mary.public_key, 100)?;
+
+        aggregator.add_transaction(&to_alice_tx)?;
+        aggregator.add_transaction(&to_mary_tx)?;
 
         Ok(())
     }

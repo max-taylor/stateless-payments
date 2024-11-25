@@ -11,7 +11,7 @@ pub fn generate_salt() -> U8_32 {
 }
 
 // Need to compare TransactionProofs with TransferBlocks to find which roots have been included
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TransferBlock {
     pub aggregated_signature: Signature,
     pub merkle_root: U8_32,
