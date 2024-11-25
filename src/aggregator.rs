@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use bls_signatures::{aggregate, PublicKey, Signature};
-use rs_merkle::{Hasher, MerkleProof, MerkleTree};
+use rs_merkle::{Hasher, MerkleTree};
 use sha2::{Digest, Sha256};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{generate_salt, MerkleTreeProof, TransferBlock, U8_32},
+    types::{TransactionWithProof, TransferBlock, U8_32},
     utils::transaction::SimpleTransaction,
 };
 
@@ -77,7 +77,7 @@ impl Aggregator {
     pub fn get_merkle_proof_for_transaction(
         &self,
         transaction: &SimpleTransaction,
-    ) -> StatelessBitcoinResult<MerkleTreeProof> {
+    ) -> StatelessBitcoinResult<TransactionWithProof> {
         let tx_hash = transaction.tx_hash();
         let TxMetadata { index, .. } = self
             .tx_hash_to_metadata
@@ -86,8 +86,8 @@ impl Aggregator {
 
         let proof = self.merkle_tree.proof(&[*index]);
 
-        let merkle_proof = MerkleTreeProof {
-            proof,
+        let merkle_proof = TransactionWithProof {
+            proof_hashes: proof.proof_hashes().to_vec(),
             root: self.root()?,
             transaction: transaction.clone(),
             index: *index,
@@ -134,7 +134,7 @@ mod tests {
 
     use crate::{
         aggregator::Aggregator, client::Client, errors::StatelessBitcoinResult,
-        types::MerkleTreeProof, utils::transaction::SimpleTransaction,
+        types::TransactionWithProof, utils::transaction::SimpleTransaction,
     };
 
     #[test]
@@ -144,7 +144,7 @@ mod tests {
 
         let transactions = (0..10)
             .map(|i| {
-                let (_, transaction) = bob.construct_transaction(bob.public_key, i * 100);
+                let (_, transaction) = bob.create_transaction(bob.public_key, i * 100).unwrap();
                 transaction
             })
             .collect::<Vec<SimpleTransaction>>();

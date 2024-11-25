@@ -15,30 +15,30 @@ fn main() -> StatelessBitcoinResult<()> {
     let mut bob = Client::new();
     let alice = Client::new();
     let mary = Client::new();
-
-    let (_, to_alice_tx) = bob.construct_transaction(alice.public_key, 100);
-    let (_, to_mary_tx) = bob.construct_transaction(mary.public_key, 100);
-
-    aggregator.add_transaction(&to_alice_tx);
-    aggregator.add_transaction(&to_mary_tx);
-
-    {
-        let to_alice_proof = aggregator.get_merkle_proof_for_transaction(&to_alice_tx)?;
-
-        let sigature = bob.validate_and_sign_transaction(to_alice_proof)?;
-
-        aggregator.add_signature(to_alice_tx, sigature.clone());
-    }
-
-    {
-        let to_bob_proof = aggregator.get_merkle_proof_for_transaction(&to_mary_tx)?;
-
-        let sigature = bob.validate_and_sign_transaction(to_bob_proof)?;
-
-        aggregator.add_signature(to_mary_tx, sigature.clone());
-    }
-
-    let aggregated_signature = aggregator.produce_transfer_block()?;
+    //
+    // let (_, to_alice_tx) = bob.construct_transaction(alice.public_key, 100);
+    // let (_, to_mary_tx) = bob.construct_transaction(mary.public_key, 100);
+    //
+    // aggregator.add_transaction(&to_alice_tx);
+    // aggregator.add_transaction(&to_mary_tx);
+    //
+    // {
+    //     let to_alice_proof = aggregator.get_merkle_proof_for_transaction(&to_alice_tx)?;
+    //
+    //     let sigature = bob.validate_and_sign_transaction(to_alice_proof)?;
+    //
+    //     aggregator.add_signature(to_alice_tx, sigature.clone());
+    // }
+    //
+    // {
+    //     let to_bob_proof = aggregator.get_merkle_proof_for_transaction(&to_mary_tx)?;
+    //
+    //     let sigature = bob.validate_and_sign_transaction(to_bob_proof)?;
+    //
+    //     aggregator.add_signature(to_mary_tx, sigature.clone());
+    // }
+    //
+    // let aggregated_signature = aggregator.produce_transfer_block()?;
 
     Ok(())
 }

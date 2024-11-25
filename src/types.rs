@@ -16,19 +16,22 @@ pub struct TransferBlock {
     pub public_keys: Vec<PublicKey>,
 }
 
-pub struct MerkleTreeProof {
-    pub proof: MerkleProof<Sha256Algorithm>,
+#[derive(Clone)]
+pub struct TransactionWithProof {
+    pub proof_hashes: Vec<U8_32>,
     pub root: U8_32,
     pub transaction: SimpleTransaction,
     pub index: usize,
     pub total_leaves: usize,
 }
 
-impl MerkleTreeProof {
+impl TransactionWithProof {
     pub fn verify(&self) -> bool {
         let tx_hash = self.transaction.tx_hash();
 
-        self.proof
-            .verify(self.root, &[self.index], &[tx_hash], self.total_leaves)
+        let merkle_proof: MerkleProof<Sha256Algorithm> =
+            MerkleProof::new(self.proof_hashes.clone());
+
+        merkle_proof.verify(self.root, &[self.index], &[tx_hash], self.total_leaves)
     }
 }
