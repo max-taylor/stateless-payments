@@ -1,4 +1,3 @@
-use core::slice::SlicePattern;
 use std::collections::HashMap;
 
 use anyhow::anyhow;
@@ -6,7 +5,11 @@ use bls_signatures::{aggregate, PublicKey, Signature};
 use rs_merkle::{Hasher, MerkleProof, MerkleTree};
 use sha2::{Digest, Sha256};
 
-use crate::{errors::StatelessBitcoinResult, types::U8_32, utils::transaction::SimpleTransaction};
+use crate::{
+    errors::StatelessBitcoinResult,
+    types::{generate_salt, MerkleTreeProof, TransferBlock, U8_32},
+    utils::{hashing::hash_tx_hash_with_salt, transaction::SimpleTransaction},
+};
 
 #[derive(Clone)]
 pub struct Sha256Algorithm {}
@@ -28,15 +31,10 @@ pub struct TxMetadata {
     public_key: PublicKey,
 }
 
-pub struct TransferBlock {
-    aggregated_signature: Signature,
-    merkle_root: U8_32,
-    public_keys: Vec<PublicKey>,
-}
-
 pub struct Aggregator {
     pub txid_to_index: HashMap<U8_32, TxMetadata>,
     pub merkle_tree: MerkleTree<Sha256Algorithm>,
+    pub salt: U8_32,
 
     pub txid_to_signature: HashMap<U8_32, Signature>,
 }
@@ -44,15 +42,16 @@ pub struct Aggregator {
 impl Aggregator {
     pub fn new() -> Aggregator {
         Aggregator {
+            salt: generate_salt(),
             txid_to_index: HashMap::new(),
             merkle_tree: MerkleTree::new(),
             txid_to_signature: HashMap::new(),
         }
     }
 
-    pub fn add_transaction(&mut self, transaction: SimpleTransaction) {
+    pub fn add_transaction(&mut self, transaction: &SimpleTransaction) {
         let index = self.merkle_tree.leaves_len();
-        let txid: U8_32 = transaction.clone().into();
+        let txid = hash_tx_hash_with_salt(&transaction.clone().into(), &self.salt);
         self.txid_to_index.insert(
             txid,
             TxMetadata {
@@ -77,10 +76,11 @@ impl Aggregator {
         Ok(index)
     }
 
-    pub fn get_merkle_proof_for_txid(
+    pub fn get_merkle_proof_for_transaction(
         &self,
-        txid: U8_32,
-    ) -> StatelessBitcoinResult<MerkleProof<Sha256Algorithm>> {
+        transaction: &SimpleTransaction,
+    ) -> StatelessBitcoinResult<MerkleTreeProof> {
+        let txid = hash_tx_hash_with_salt(&transaction.clone().into(), &self.salt);
         let TxMetadata { index, .. } = self
             .txid_to_index
             .get(&txid)
@@ -88,7 +88,16 @@ impl Aggregator {
 
         let proof = self.merkle_tree.proof(&[*index]);
 
-        Ok(proof)
+        let merkle_proof = MerkleTreeProof {
+            proof,
+            root: self.root()?,
+            transaction: transaction.clone(),
+            salt: self.salt,
+            index: *index,
+            total_leaves: self.merkle_tree.leaves_len(),
+        };
+
+        Ok(merkle_proof)
     }
 
     pub fn add_signature(&mut self, transaction: SimpleTransaction, signature: Signature) {
@@ -129,36 +138,33 @@ mod tests {
         aggregator::Aggregator,
         client::Client,
         errors::StatelessBitcoinResult,
-        types::{generate_salt, U8_32},
+        types::MerkleTreeProof,
+        utils::{hashing::hash_tx_hash_with_salt, transaction::SimpleTransaction},
     };
 
     #[test]
     fn test_can_reproduce_root() -> StatelessBitcoinResult<()> {
         let mut aggregator = Aggregator::new();
         let mut bob = Client::new();
-        let salt = generate_salt();
 
-        let txids: Vec<U8_32> = (0..10)
+        let transactions = (0..10)
             .map(|i| {
-                let (txid, _) = bob.construct_transaction(bob.public_key, i * 100, salt);
-                txid
+                let (_, transaction) =
+                    bob.construct_transaction(bob.public_key, i * 100, aggregator.salt);
+                transaction
             })
-            .collect();
+            .collect::<Vec<SimpleTransaction>>();
 
-        for txid in txids.iter() {
-            aggregator.add_transaction(*txid);
+        for transaction in transactions.iter() {
+            aggregator.add_transaction(transaction);
         }
 
-        let root = aggregator.root().unwrap();
+        for transaction in transactions.iter() {
+            let merkle_tree_proof = aggregator
+                .get_merkle_proof_for_transaction(transaction)
+                .unwrap();
 
-        for (index, txid) in txids.iter().enumerate() {
-            let proof = aggregator.get_merkle_proof_for_txid(*txid).unwrap();
-            let verify_result = proof.verify(
-                root.clone(),
-                &[index],
-                &[txid.clone()],
-                aggregator.merkle_tree.leaves_len(),
-            );
+            let verify_result = merkle_tree_proof.verify();
 
             assert_eq!(verify_result, true);
         }
