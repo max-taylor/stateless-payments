@@ -6,14 +6,15 @@ use bls_signatures::{PrivateKey, PublicKey, Signature};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{generate_salt, TransactionWithProof, U8_32},
+    types::{generate_salt, TransactionProof, U8_32},
     utils::transaction::SimpleTransaction,
 };
 
 pub struct Client {
     pub public_key: bls_signatures::PublicKey,
-    pub private_key: bls_signatures::PrivateKey,
-    pub transaction_history: HashMap<U8_32, TransactionWithProof>,
+    private_key: bls_signatures::PrivateKey,
+
+    pub transaction_history: HashMap<U8_32, (SimpleTransaction, TransactionProof)>,
     pub uncomfirmed_transactions: HashMap<U8_32, SimpleTransaction>,
 
     pub balance: u64,
@@ -36,7 +37,7 @@ impl Client {
         &mut self,
         to: PublicKey,
         amount: u64,
-    ) -> StatelessBitcoinResult<(U8_32, SimpleTransaction)> {
+    ) -> StatelessBitcoinResult<SimpleTransaction> {
         let salt = generate_salt();
         let transaction = SimpleTransaction {
             to,
@@ -45,45 +46,54 @@ impl Client {
             salt,
         };
 
-        let tx_hash = transaction.tx_hash();
-
         self.uncomfirmed_transactions
-            .insert(tx_hash, transaction.clone());
+            .insert(transaction.tx_hash(), transaction.clone());
 
         // TODO: add back in
         // self.balance
         //     .checked_sub(amount)
         //     .ok_or_else(|| anyhow!("Insufficient balance"))?;
 
-        Ok((tx_hash, transaction))
+        Ok(transaction)
     }
 
     pub fn add_transaction_with_proof(
         &mut self,
-        transaction_proof: TransactionWithProof,
+        transaction_proof: TransactionProof,
     ) -> StatelessBitcoinResult<()> {
-        if transaction_proof.transaction.to != self.public_key
-            || transaction_proof.transaction.from != self.public_key
-        {
+        // TODO: somewhere we need to check that the transaction has been submitted on-chain
+        let tx_hash = transaction_proof.tx_hash;
+
+        let transaction = self
+            .uncomfirmed_transactions
+            .get(&tx_hash)
+            .ok_or(anyhow!("Transaction not found"))?;
+
+        if transaction.to != self.public_key || transaction.from != self.public_key {
             return Err(anyhow::anyhow!("Invalid transaction"));
         }
 
-        let tx_hash = transaction_proof.transaction.tx_hash();
-        self.uncomfirmed_transactions.remove(&tx_hash);
+        // This isn't really needed because validate_and_sign_transaction will be called first and
+        // it checks this, but it's here for completeness
+        if !transaction_proof.verify() {
+            return Err(anyhow::anyhow!("Invalid transaction"));
+        }
 
         self.transaction_history
-            .insert(tx_hash, transaction_proof.clone());
+            .insert(tx_hash, (transaction.clone(), transaction_proof.clone()));
+
+        self.uncomfirmed_transactions.remove(&tx_hash);
 
         Ok(())
     }
 
     pub fn validate_and_sign_transaction(
         &self,
-        merkle_tree_proof: TransactionWithProof,
+        merkle_tree_proof: TransactionProof,
     ) -> StatelessBitcoinResult<Signature> {
-        let tx_hash = merkle_tree_proof.transaction.tx_hash();
+        let tx_hash = merkle_tree_proof.tx_hash;
 
-        if !self.transaction_history.contains_key(&tx_hash) {
+        if !self.uncomfirmed_transactions.contains_key(&tx_hash) {
             return Err(anyhow::anyhow!("Transaction not found"));
         }
 
@@ -97,7 +107,7 @@ impl Client {
     }
 }
 
-pub fn calculate_balance(balance_proof: Vec<TransactionWithProof>, address: PublicKey) -> bool {
+pub fn calculate_balance(balance_proof: Vec<TransactionProof>, address: PublicKey) -> bool {
     let mut balance = 0.0;
 
     true

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use aggregator::Aggregator;
 use client::Client;
 use errors::StatelessBitcoinResult;

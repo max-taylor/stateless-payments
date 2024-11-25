@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt::{self, Formatter},
+};
 
 use anyhow::anyhow;
 use bls_signatures::{aggregate, PublicKey, Signature};
@@ -7,7 +10,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{TransactionWithProof, TransferBlock, U8_32},
+    types::{TransactionProof, TransferBlock, U8_32},
     utils::transaction::SimpleTransaction,
 };
 
@@ -29,13 +32,42 @@ impl Hasher for Sha256Algorithm {
 pub struct TxMetadata {
     index: usize,
     public_key: PublicKey,
+    signature: Option<Signature>,
+}
+
+#[derive(Clone)]
+pub enum AggregatorState {
+    Open,
+    CollectSignatures,
+    Finalised(TransferBlock),
+}
+
+impl fmt::Debug for AggregatorState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            AggregatorState::Open => write!(f, "Open"),
+            AggregatorState::CollectSignatures => write!(f, "CollectSignatures"),
+            AggregatorState::Finalised(_) => write!(f, "Finalised"),
+        }
+    }
+}
+
+impl PartialEq for AggregatorState {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (AggregatorState::Open, AggregatorState::Open) => true,
+            (AggregatorState::CollectSignatures, AggregatorState::CollectSignatures) => true,
+            (AggregatorState::Finalised(_), AggregatorState::Finalised(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct Aggregator {
     pub tx_hash_to_metadata: HashMap<U8_32, TxMetadata>,
     pub merkle_tree: MerkleTree<Sha256Algorithm>,
 
-    pub tx_hash_to_signature: HashMap<U8_32, Signature>,
+    pub state: AggregatorState,
 }
 
 impl Aggregator {
@@ -43,42 +75,50 @@ impl Aggregator {
         Aggregator {
             tx_hash_to_metadata: HashMap::new(),
             merkle_tree: MerkleTree::new(),
-            tx_hash_to_signature: HashMap::new(),
+            state: AggregatorState::Open,
         }
     }
 
-    pub fn add_transaction(&mut self, transaction: &SimpleTransaction) {
+    pub fn start_collecting_signatures(&mut self) -> StatelessBitcoinResult<()> {
+        self.check_aggregator_state(AggregatorState::Open)?;
+
+        self.state = AggregatorState::CollectSignatures;
+
+        Ok(())
+    }
+
+    pub fn add_transaction(
+        &mut self,
+        tx_hash: U8_32,
+        public_key: PublicKey,
+    ) -> StatelessBitcoinResult<()> {
+        self.check_aggregator_state(AggregatorState::Open)?;
+
         let index = self.merkle_tree.leaves_len();
-        let tx_hash = transaction.tx_hash();
+
         self.tx_hash_to_metadata.insert(
             tx_hash,
             TxMetadata {
                 index,
-                public_key: transaction.to,
+                public_key,
+                signature: None,
             },
         );
         self.merkle_tree.insert(tx_hash).commit();
+
+        Ok(())
     }
 
     pub fn root(&self) -> StatelessBitcoinResult<U8_32> {
         self.merkle_tree.root().ok_or(anyhow!("No transactions"))
     }
 
-    pub fn get_index_for_tx_hash(&self, tx_hash: U8_32) -> StatelessBitcoinResult<usize> {
-        let TxMetadata { index, .. } = self
-            .tx_hash_to_metadata
-            .get(&tx_hash)
-            .cloned()
-            .ok_or(anyhow!("Transaction not found"))?;
-
-        Ok(index)
-    }
-
-    pub fn get_merkle_proof_for_transaction(
+    pub fn generate_proof_for_tx_hash(
         &self,
-        transaction: &SimpleTransaction,
-    ) -> StatelessBitcoinResult<TransactionWithProof> {
-        let tx_hash = transaction.tx_hash();
+        tx_hash: U8_32,
+    ) -> StatelessBitcoinResult<TransactionProof> {
+        self.check_aggregator_state(AggregatorState::CollectSignatures)?;
+
         let TxMetadata { index, .. } = self
             .tx_hash_to_metadata
             .get(&tx_hash)
@@ -86,10 +126,10 @@ impl Aggregator {
 
         let proof = self.merkle_tree.proof(&[*index]);
 
-        let merkle_proof = TransactionWithProof {
+        let merkle_proof = TransactionProof {
             proof_hashes: proof.proof_hashes().to_vec(),
             root: self.root()?,
-            transaction: transaction.clone(),
+            tx_hash,
             index: *index,
             total_leaves: self.merkle_tree.leaves_len(),
         };
@@ -97,25 +137,37 @@ impl Aggregator {
         Ok(merkle_proof)
     }
 
-    pub fn add_signature(&mut self, transaction: SimpleTransaction, signature: Signature) {
+    pub fn add_signature(
+        &mut self,
+        transaction: SimpleTransaction,
+        signature: Signature,
+    ) -> StatelessBitcoinResult<()> {
+        self.check_aggregator_state(AggregatorState::CollectSignatures)?;
+
         // TODO: validate signature
-        //
-        self.tx_hash_to_signature
-            .insert(transaction.into(), signature);
+
+        let metadata = self
+            .tx_hash_to_metadata
+            .get_mut(&transaction.tx_hash())
+            .ok_or(anyhow!("Transaction not found"))?;
+
+        metadata.signature = Some(signature);
+
+        Ok(())
     }
 
-    pub fn produce_transfer_block(&self) -> StatelessBitcoinResult<TransferBlock> {
-        let signatures = self
-            .tx_hash_to_signature
-            .values()
-            .cloned()
-            .collect::<Vec<Signature>>();
+    pub fn finalise(&mut self) -> StatelessBitcoinResult<TransferBlock> {
+        self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let public_keys = self
-            .tx_hash_to_signature
-            .keys()
-            .map(|tx_hash| self.tx_hash_to_metadata.get(tx_hash).unwrap().public_key)
-            .collect();
+        let mut signatures: Vec<Signature> = vec![];
+        let mut public_keys: Vec<PublicKey> = vec![];
+
+        for tx_metadata in self.tx_hash_to_metadata.values() {
+            if let Some(signature) = tx_metadata.signature {
+                signatures.push(signature);
+                public_keys.push(tx_metadata.public_key.clone());
+            }
+        }
 
         let aggregated_signature = aggregate(&signatures.as_slice())?;
 
@@ -125,7 +177,24 @@ impl Aggregator {
             public_keys,
         };
 
+        self.state = AggregatorState::Finalised(transfer_block.clone());
+
         Ok(transfer_block)
+    }
+
+    fn check_aggregator_state(
+        &self,
+        expected_state: AggregatorState,
+    ) -> StatelessBitcoinResult<()> {
+        if self.state != expected_state {
+            return Err(anyhow!(
+                "Invalid state, is {:?} but expected {:?}",
+                self.state,
+                expected_state
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -134,7 +203,7 @@ mod tests {
 
     use crate::{
         aggregator::Aggregator, client::Client, errors::StatelessBitcoinResult,
-        types::TransactionWithProof, utils::transaction::SimpleTransaction,
+        utils::transaction::SimpleTransaction,
     };
 
     #[test]
@@ -144,18 +213,20 @@ mod tests {
 
         let transactions = (0..10)
             .map(|i| {
-                let (_, transaction) = bob.create_transaction(bob.public_key, i * 100).unwrap();
+                let transaction = bob.create_transaction(bob.public_key, i * 100).unwrap();
                 transaction
             })
             .collect::<Vec<SimpleTransaction>>();
 
         for transaction in transactions.iter() {
-            aggregator.add_transaction(transaction);
+            aggregator.add_transaction(transaction.tx_hash(), bob.public_key.clone())?;
         }
+
+        aggregator.start_collecting_signatures()?;
 
         for transaction in transactions.iter() {
             let merkle_tree_proof = aggregator
-                .get_merkle_proof_for_transaction(transaction)
+                .generate_proof_for_tx_hash(transaction.tx_hash())
                 .unwrap();
 
             let verify_result = merkle_tree_proof.verify();
