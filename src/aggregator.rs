@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
 use anyhow::anyhow;
-use blsful::{AggregateSignature, Signature};
+use blsful::AggregateSignature;
 use indexmap::IndexMap;
 use rs_merkle::{Hasher, MerkleTree};
 use sha2::{Digest, Sha256};
@@ -217,11 +215,14 @@ mod tests {
             .into_iter()
             .map(|_| Client::new())
             .collect::<Vec<Client>>();
+        let receiver = Client::new();
 
         let transactions = accounts
             .iter_mut()
             .map(|account| {
-                let tx = account.create_transaction(account.public_key, 100).unwrap();
+                let tx = account
+                    .create_transaction(receiver.public_key, 100)
+                    .unwrap();
                 aggregator
                     .add_transaction(&tx.tx_hash(), &account.public_key)
                     .unwrap();
@@ -255,12 +256,12 @@ mod tests {
 
     #[test]
     fn test_finalise() -> StatelessBitcoinResult<()> {
-        let (mut aggregator, accounts, transactions) =
+        let (mut aggregator, mut accounts, transactions) =
             setup_with_unique_accounts_and_transactions(2)?;
 
         aggregator.start_collecting_signatures()?;
 
-        for (transaction, account) in transactions.iter().zip(accounts.iter()) {
+        for (transaction, account) in transactions.iter().zip(accounts.iter_mut()) {
             let merkle_tree_proof = aggregator
                 .generate_proof_for_tx_hash(&transaction.tx_hash(), &account.public_key)?;
 

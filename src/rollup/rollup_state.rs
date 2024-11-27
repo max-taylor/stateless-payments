@@ -6,12 +6,34 @@ use crate::{
     },
 };
 
-trait RollupContractTrait {
+pub trait RollupContractTrait {
     fn get_withdraw_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
+
+    fn get_account_withdraw_amount(&self, pubkey: BlsPublicKey) -> StatelessBitcoinResult<u64> {
+        let withdraw_totals = self.get_withdraw_totals()?;
+        Ok(*withdraw_totals.get(&pubkey.into()).unwrap_or(&0))
+    }
 
     fn get_deposit_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
 
+    fn get_account_deposit_amount(&self, pubkey: BlsPublicKey) -> StatelessBitcoinResult<u64> {
+        let deposit_totals = self.get_deposit_totals()?;
+        Ok(*deposit_totals.get(&pubkey.into()).unwrap_or(&0))
+    }
+
     fn get_transfer_blocks(&self) -> StatelessBitcoinResult<&Vec<TransferBlock>>;
+
+    fn get_account_transfer_blocks(
+        &self,
+        pubkey: BlsPublicKey,
+    ) -> StatelessBitcoinResult<Vec<TransferBlock>> {
+        let transfer_blocks = self.get_transfer_blocks()?;
+        Ok(transfer_blocks
+            .iter()
+            .filter(|transfer_block| transfer_block.public_keys.contains(&pubkey))
+            .cloned()
+            .collect())
+    }
 }
 
 pub struct MockRollupState {
