@@ -6,8 +6,10 @@ use bls_signatures::{PrivateKey, PublicKey, Signature};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::common::{generate_salt, TransactionProof, U8_32},
-    utils::transaction::SimpleTransaction,
+    types::{
+        common::{generate_salt, TransactionProof, U8_32},
+        transaction::SimpleTransaction,
+    },
 };
 
 pub struct Client {

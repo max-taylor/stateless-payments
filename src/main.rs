@@ -3,6 +3,7 @@
 use aggregator::Aggregator;
 use client::Client;
 use errors::StatelessBitcoinResult;
+use rollup::rollup_state::MockRollupState;
 
 mod aggregator;
 mod client;
@@ -13,6 +14,7 @@ mod utils;
 
 fn main() -> StatelessBitcoinResult<()> {
     let mut aggregator = Aggregator::new();
+    let mut rollup_state = MockRollupState::new();
 
     let mut bob = Client::new();
     let alice = Client::new();

@@ -7,8 +7,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::common::{TransactionProof, TransferBlock, U8_32},
-    utils::transaction::SimpleTransaction,
+    types::{
+        common::{TransactionProof, TransferBlock, U8_32},
+        public_key::BlsPublicKeyWrapper,
+    },
 };
 
 #[derive(Clone)]
@@ -40,7 +42,7 @@ pub enum AggregatorState {
 }
 
 pub struct Aggregator {
-    pub tx_hash_to_metadata: HashMap<U8_32, TxMetadata>,
+    pub tx_hash_to_metadata: HashMap<(U8_32, BlsPublicKeyWrapper), TxMetadata>,
     pub merkle_tree: MerkleTree<Sha256Algorithm>,
 
     pub state: AggregatorState,
@@ -70,10 +72,17 @@ impl Aggregator {
     ) -> StatelessBitcoinResult<()> {
         self.check_aggregator_state(AggregatorState::Open)?;
 
+        if self
+            .tx_hash_to_metadata
+            .contains_key(&(tx_hash, public_key.into()))
+        {
+            return Err(anyhow!("Transaction already exists"));
+        }
+
         let index = self.merkle_tree.leaves_len();
 
         self.tx_hash_to_metadata.insert(
-            tx_hash,
+            (tx_hash, public_key.into()),
             TxMetadata {
                 index,
                 public_key,
@@ -92,12 +101,13 @@ impl Aggregator {
     pub fn generate_proof_for_tx_hash(
         &self,
         tx_hash: U8_32,
+        public_key: PublicKey,
     ) -> StatelessBitcoinResult<TransactionProof> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
         let TxMetadata { index, .. } = self
             .tx_hash_to_metadata
-            .get(&tx_hash)
+            .get(&(tx_hash, public_key.into()))
             .ok_or(anyhow!("Transaction not found"))?;
 
         let proof = self.merkle_tree.proof(&[*index]);
@@ -115,7 +125,8 @@ impl Aggregator {
 
     pub fn add_signature(
         &mut self,
-        transaction: SimpleTransaction,
+        tx_hash: U8_32,
+        public_key: PublicKey,
         signature: Signature,
     ) -> StatelessBitcoinResult<()> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
@@ -124,7 +135,7 @@ impl Aggregator {
 
         let metadata = self
             .tx_hash_to_metadata
-            .get_mut(&transaction.tx_hash())
+            .get_mut(&(tx_hash, public_key.into()))
             .ok_or(anyhow!("Transaction not found"))?;
 
         metadata.signature = Some(signature);
@@ -179,7 +190,7 @@ mod tests {
 
     use crate::{
         aggregator::Aggregator, client::Client, errors::StatelessBitcoinResult,
-        utils::transaction::SimpleTransaction,
+        types::transaction::SimpleTransaction,
     };
 
     #[test]
