@@ -1,5 +1,5 @@
 use bitcoincore_rpc::bitcoin::key::rand;
-use bls_signatures::{PublicKey, Signature};
+use blsful::{AggregateSignature, Bls12381G1Impl, PublicKey, SecretKey, Signature};
 use rs_merkle::MerkleProof;
 
 use crate::aggregator::Sha256Algorithm;
@@ -10,12 +10,17 @@ pub fn generate_salt() -> U8_32 {
     rand::random()
 }
 
+pub type BlsPublicKey = PublicKey<Bls12381G1Impl>;
+pub type BlsSignature = Signature<Bls12381G1Impl>;
+pub type BlsSecretKey = SecretKey<Bls12381G1Impl>;
+pub type BlsAggregateSignature = AggregateSignature<Bls12381G1Impl>;
+
 // Need to compare TransactionProofs with TransferBlocks to find which roots have been included
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransferBlock {
-    pub aggregated_signature: Signature,
+    pub aggregated_signature: BlsAggregateSignature,
     pub merkle_root: U8_32,
-    pub public_keys: Vec<PublicKey>,
+    pub public_keys: Vec<BlsPublicKey>,
 }
 
 #[derive(Clone)]

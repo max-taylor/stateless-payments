@@ -10,7 +10,6 @@ mod client;
 mod errors;
 mod rollup;
 mod types;
-mod utils;
 
 fn main() -> StatelessBitcoinResult<()> {
     let mut aggregator = Aggregator::new();

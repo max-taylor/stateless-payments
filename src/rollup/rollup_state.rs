@@ -1,8 +1,9 @@
-use bls_signatures::{PublicKey, Serialize};
-
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{common::TransferBlock, public_key::AccountTotals},
+    types::{
+        common::{BlsPublicKey, TransferBlock},
+        public_key::AccountTotals,
+    },
 };
 
 trait RollupContractTrait {
@@ -32,11 +33,11 @@ impl MockRollupState {
         self.transfer_blocks.push(transfer_block);
     }
 
-    fn add_deposit(&mut self, pubkey: PublicKey, amount: u64) {
+    fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) {
         self.deposit_blocks.insert(pubkey.into(), amount);
     }
 
-    fn add_withdraw_block(&mut self, pubkey: PublicKey, amount: u64) {
+    fn add_withdraw_block(&mut self, pubkey: BlsPublicKey, amount: u64) {
         self.withdraw_totals.insert(pubkey.into(), amount);
     }
 }

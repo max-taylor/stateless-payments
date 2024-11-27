@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
-use bitcoincore_rpc::bitcoin::key::rand::thread_rng;
-use bls_signatures::{PrivateKey, PublicKey, Signature};
 
 use crate::{
     errors::StatelessBitcoinResult,
     types::{
-        common::{generate_salt, TransactionProof, U8_32},
+        common::{
+            generate_salt, BlsPublicKey, BlsSecretKey, BlsSignature, TransactionProof, U8_32,
+        },
         transaction::SimpleTransaction,
     },
 };
 
 pub struct Client {
-    pub public_key: bls_signatures::PublicKey,
-    private_key: bls_signatures::PrivateKey,
+    pub public_key: BlsPublicKey,
+    pub private_key: BlsSecretKey,
 
     pub transaction_history: HashMap<U8_32, (SimpleTransaction, TransactionProof)>,
     pub uncomfirmed_transactions: HashMap<U8_32, SimpleTransaction>,
@@ -24,10 +24,10 @@ pub struct Client {
 
 impl Client {
     pub fn new() -> Client {
-        let private_key = PrivateKey::generate(&mut thread_rng());
+        let private_key = BlsSecretKey::new();
 
         Client {
-            private_key,
+            private_key: private_key.clone(),
             public_key: private_key.public_key(),
             transaction_history: HashMap::new(),
             uncomfirmed_transactions: HashMap::new(),
@@ -37,7 +37,7 @@ impl Client {
 
     pub fn create_transaction(
         &mut self,
-        to: PublicKey,
+        to: BlsPublicKey,
         amount: u64,
     ) -> StatelessBitcoinResult<SimpleTransaction> {
         let salt = generate_salt();
@@ -92,7 +92,7 @@ impl Client {
     pub fn validate_and_sign_transaction(
         &self,
         merkle_tree_proof: TransactionProof,
-    ) -> StatelessBitcoinResult<Signature> {
+    ) -> StatelessBitcoinResult<BlsSignature> {
         let tx_hash = merkle_tree_proof.tx_hash;
 
         if !self.uncomfirmed_transactions.contains_key(&tx_hash) {
@@ -103,13 +103,16 @@ impl Client {
             return Err(anyhow::anyhow!("Invalid transaction"));
         }
 
-        let signature = self.private_key.sign(&tx_hash);
+        let signature = self.private_key.sign(
+            blsful::SignatureSchemes::MessageAugmentation,
+            &merkle_tree_proof.root,
+        )?;
 
         Ok(signature)
     }
 }
 
-pub fn calculate_balance(balance_proof: Vec<TransactionProof>, address: PublicKey) -> bool {
+pub fn calculate_balance(balance_proof: Vec<TransactionProof>, address: BlsPublicKey) -> bool {
     let mut balance = 0.0;
 
     true

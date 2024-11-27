@@ -1,9 +1,10 @@
 use bitcoincore_rpc::jsonrpc::serde_json;
-use bls_signatures::{PublicKey, Serialize};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::types::common::U8_32;
+
+use super::common::BlsPublicKey;
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
 pub struct SimpleTransaction {
@@ -11,29 +12,29 @@ pub struct SimpleTransaction {
         serialize_with = "serialize_public_key",
         deserialize_with = "deserialize_public_key"
     )]
-    pub to: PublicKey,
+    pub to: BlsPublicKey,
     #[serde(
         serialize_with = "serialize_public_key",
         deserialize_with = "deserialize_public_key"
     )]
-    pub from: PublicKey,
+    pub from: BlsPublicKey,
     pub amount: u64,
     pub salt: U8_32,
 }
 
-pub fn serialize_public_key<S>(key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_public_key<S>(key: &BlsPublicKey, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_bytes(&key.as_bytes())
+    serializer.serialize_bytes(&key.to_string().as_bytes())
 }
 
-pub fn deserialize_public_key<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+pub fn deserialize_public_key<'de, D>(deserializer: D) -> Result<BlsPublicKey, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let bytes = Vec::deserialize(deserializer)?;
-    PublicKey::from_bytes(&bytes).map_err(serde::de::Error::custom)
+    BlsPublicKey::try_from(&bytes).map_err(serde::de::Error::custom)
 }
 
 impl Into<U8_32> for SimpleTransaction {
