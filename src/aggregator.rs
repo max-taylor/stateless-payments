@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
-use blsful::AggregateSignature;
+use blsful::{AggregateSignature, Signature};
 use indexmap::IndexMap;
 use rs_merkle::{Hasher, MerkleTree};
 use sha2::{Digest, Sha256};
@@ -145,9 +145,7 @@ impl Aggregator {
         let tx_hash = *tx_hash;
         let public_key = *public_key;
 
-        // if !verify_messages(&signature, &[self.root()?.as_ref()], &[public_key]) {
-        //     return Err(anyhow!("Invalid signature"));
-        // }
+        signature.verify(&public_key, self.root()?)?;
 
         let metadata = self
             .tx_hash_to_metadata
@@ -204,13 +202,11 @@ impl Aggregator {
 #[cfg(test)]
 mod tests {
 
-    use blsful::{AggregateSignature, Bls12381G1Impl, BlsSignatureImpl, SecretKey};
-
     use crate::{
         aggregator::{Aggregator, AggregatorState},
         client::Client,
         errors::StatelessBitcoinResult,
-        types::{common::generate_salt, transaction::SimpleTransaction},
+        types::transaction::SimpleTransaction,
     };
 
     fn setup_with_unique_accounts_and_transactions(
@@ -258,162 +254,42 @@ mod tests {
     }
 
     #[test]
-    fn test_stupid_fucking_thing() -> StatelessBitcoinResult<()> {
-        let bob: SecretKey<Bls12381G1Impl> = SecretKey::new();
-        let alice = SecretKey::new();
-        // let bob = PrivateKey::generate(&mut thread_rng());
-        // let alice = PrivateKey::generate(&mut thread_rng());
+    fn test_finalise() -> StatelessBitcoinResult<()> {
+        let (mut aggregator, accounts, transactions) =
+            setup_with_unique_accounts_and_transactions(2)?;
 
-        let message = "hello world";
-        let root = message.as_bytes();
+        aggregator.start_collecting_signatures()?;
 
-        let mut message = Vec::new();
-        message.extend_from_slice("Hello, world!".as_bytes());
-        message.extend_from_slice(&generate_salt());
+        for (transaction, account) in transactions.iter().zip(accounts.iter()) {
+            let merkle_tree_proof = aggregator
+                .generate_proof_for_tx_hash(&transaction.tx_hash(), &account.public_key)?;
 
-        // Sign the message with both keys
-        let bob_sig = bob.sign(blsful::SignatureSchemes::MessageAugmentation, root)?;
-        let alice_sig = alice.sign(blsful::SignatureSchemes::MessageAugmentation, root)?;
+            let signature = account.validate_and_sign_transaction(merkle_tree_proof)?;
 
-        // // Verify individual signatures
-        // assert!(
-        //     verify_messages(&bob_sig, &[message.as_ref()], &[bob.public_key()]),
-        //     "Bob's signature failed to verify"
-        // );
-        // assert!(
-        //     verify_messages(&alice_sig, &[message.as_ref()], &[alice.public_key()]),
-        //     "Alice's signature failed to verify"
-        // );
+            aggregator.add_signature(&transaction.tx_hash(), &account.public_key, signature)?;
+        }
 
-        // Aggregate signatures
-        // let aggregated_signature = aggregate(&[bob_sig, alice_sig])?;
-        let aggregated_signature = AggregateSignature::from_signatures(&[bob_sig, alice_sig])?;
+        let finalised_block = aggregator.finalise()?;
 
-        let verified =
-            aggregated_signature.verify(&[(bob.public_key(), root), (alice.public_key(), root)])?;
+        assert_eq!(finalised_block.merkle_root, aggregator.root()?);
+        assert_eq!(
+            aggregator.state,
+            AggregatorState::Finalised(finalised_block.clone())
+        );
 
-        dbg!(&verified);
+        let verified = &finalised_block.verify();
 
-        // // Verify the aggregated signature
-        // let message_hash = hash(&message);
-        // let messages = vec![message_hash, message_hash]; // Same hash for both
-        // let public_keys = vec![bob.public_key(), alice.public_key()];
-        // let verified = verify(&aggregated_signature, &messages, &public_keys);
-
-        // assert!(verified, "Aggregated signature verification failed");
+        match verified {
+            Ok(_) => (),
+            Err(e) => {
+                assert!(
+                    false,
+                    "{}",
+                    format!("Aggregated signature verification failed: {:?}", e)
+                );
+            }
+        }
 
         Ok(())
     }
-
-    // #[test]
-    // fn test_stupid_fucking_thing() -> StatelessBitcoinResult<()> {
-    //     let mut aggregator = Aggregator::new();
-    //     let bob = PrivateKey::generate(&mut thread_rng());
-    //     let alice = PrivateKey::generate(&mut thread_rng());
-    //
-    //     // let mut bob = Client::new();
-    //     // let mut alice = Client::new();
-    //     //
-    //     // let bob_tx = bob.create_transaction(alice.public_key, 100)?;
-    //     // let alice_tx = alice.create_transaction(bob.public_key, 100)?;
-    //
-    //     let message = "hello world";
-    //
-    //     // aggregator.add_transaction(&bob_tx.tx_hash(), &bob.public_key)?;
-    //     // aggregator.add_transaction(&alice_tx.tx_hash(), &alice.public_key)?;
-    //
-    //     aggregator.start_collecting_signatures()?;
-    //
-    //     // let root = aggregator.root()?;
-    //     let root = message.to_string().into_bytes();
-    //
-    //     let bob_sig = bob.sign(&root);
-    //     let alice_sig = alice.sign(&root);
-    //
-    //     // let bob_sig = bob.validate_and_sign_transaction(
-    //     //     aggregator.generate_proof_for_tx_hash(&bob_tx.tx_hash(), &bob.public_key)?,
-    //     // )?;
-    //     //
-    //     // let alice_sig = alice.validate_and_sign_transaction(
-    //     //     aggregator.generate_proof_for_tx_hash(&alice_tx.tx_hash(), &alice.public_key)?,
-    //     // )?;
-    //
-    //     let aggregated_signature = aggregate(&[bob_sig, alice_sig])?;
-    //
-    //     let messages = vec![root.as_ref(), root.as_ref()];
-    //
-    //     let public_keys = vec![bob.public_key(), alice.public_key()];
-    //
-    //     let verified = verify_messages(&aggregated_signature, &messages, &public_keys);
-    //
-    //     assert_eq!(verified, true, "Aggregated signature verification failed");
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_finalise() -> StatelessBitcoinResult<()> {
-    //     let (mut aggregator, accounts, transactions) =
-    //         setup_with_unique_accounts_and_transactions(2)?;
-    //
-    //     aggregator.start_collecting_signatures()?;
-    //
-    //     let root = aggregator.root()?;
-    //
-    //     let mut signatures: Vec<Signature> = vec![];
-    //
-    //     for (transaction, account) in transactions.iter().zip(accounts.iter()) {
-    //         let merkle_tree_proof = aggregator
-    //             .generate_proof_for_tx_hash(&transaction.tx_hash(), &account.public_key)?;
-    //
-    //         assert_eq!(merkle_tree_proof.verify(), true);
-    //         assert_eq!(merkle_tree_proof.root, root);
-    //
-    //         let signature = account.validate_and_sign_transaction(merkle_tree_proof)?;
-    //
-    //         signatures.push(signature);
-    //
-    //         // aggregator.add_signature(&transaction.tx_hash(), &account.public_key, signature)?;
-    //     }
-    //
-    //     let aggregated_signature = aggregate(&signatures.as_slice())?;
-    //
-    //     let messages = (0..signatures.len())
-    //         .map(|i| &root as &[u8])
-    //         .collect::<Vec<_>>();
-    //
-    //     let public_keys = accounts
-    //         .iter()
-    //         .map(|account| account.public_key)
-    //         .collect::<Vec<_>>();
-    //
-    //     let verified = verify_messages(&aggregated_signature, &messages, &public_keys);
-    //     assert!(verified, "Aggregated signature verification failed");
-    //
-    //     Ok(())
-    //     // let finalised_block = aggregator.finalise()?;
-    //     //
-    //     // // assert_eq!(finalised_block.public_keys.len(), 10);
-    //     // assert_eq!(finalised_block.merkle_root, aggregator.root()?);
-    //     // assert_eq!(
-    //     //     aggregator.state,
-    //     //     AggregatorState::Finalised(finalised_block.clone())
-    //     // );
-    //     // dbg!(&finalised_block);
-    //     //
-    //     // let messages = (0..finalised_block.public_keys.len())
-    //     //     .map(|i| &finalised_block.merkle_root as &[u8])
-    //     //     .collect::<Vec<_>>();
-    //     //
-    //     // let verified = verify_messages(
-    //     //     &finalised_block.aggregated_signature,
-    //     //     // &[&finalised_block.merkle_root],
-    //     //     messages.as_slice(),
-    //     //     &finalised_block.public_keys,
-    //     // );
-    //     //
-    //     // assert_eq!(verified, true, "Aggregated signature is invalid");
-    //     //
-    //     // Ok(())
-    // }
 }

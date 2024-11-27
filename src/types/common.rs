@@ -1,5 +1,5 @@
 use bitcoincore_rpc::bitcoin::key::rand;
-use blsful::{AggregateSignature, Bls12381G1Impl, PublicKey, SecretKey, Signature};
+use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey, Signature};
 use rs_merkle::MerkleProof;
 
 use crate::aggregator::Sha256Algorithm;
@@ -21,6 +21,18 @@ pub struct TransferBlock {
     pub aggregated_signature: BlsAggregateSignature,
     pub merkle_root: U8_32,
     pub public_keys: Vec<BlsPublicKey>,
+}
+
+impl TransferBlock {
+    pub fn verify(&self) -> BlsResult<()> {
+        let verify_message = self
+            .public_keys
+            .iter()
+            .map(|pk| (pk.clone(), self.merkle_root))
+            .collect::<Vec<(BlsPublicKey, U8_32)>>();
+
+        self.aggregated_signature.verify(&verify_message)
+    }
 }
 
 #[derive(Clone)]
