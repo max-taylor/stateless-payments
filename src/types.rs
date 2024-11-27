@@ -1,5 +1,10 @@
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+};
+
 use bitcoincore_rpc::bitcoin::key::rand;
-use bls_signatures::{PublicKey, Signature};
+use bls_signatures::{PublicKey, Serialize, Signature};
 use rs_merkle::MerkleProof;
 
 use crate::aggregator::Sha256Algorithm;
@@ -17,6 +22,39 @@ pub struct TransferBlock {
     pub merkle_root: U8_32,
     pub public_keys: Vec<PublicKey>,
 }
+
+// Unfortunately PublicKey does not implement Hash, so we need to wrap it
+#[derive(Clone)]
+pub struct PublicKeyWrapper(PublicKey);
+
+impl PartialEq for PublicKeyWrapper {
+    fn eq(&self, other: &Self) -> bool {
+        // Implement equality as needed for PublicKey
+        self.0.as_bytes() == other.0.as_bytes()
+    }
+}
+
+impl Eq for PublicKeyWrapper {}
+
+impl Hash for PublicKeyWrapper {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_bytes().hash(state);
+    }
+}
+
+impl Into<PublicKey> for PublicKeyWrapper {
+    fn into(self) -> PublicKey {
+        self.0
+    }
+}
+
+impl From<PublicKey> for PublicKeyWrapper {
+    fn from(public_key: PublicKey) -> Self {
+        PublicKeyWrapper(public_key)
+    }
+}
+
+pub type AccountTotals = HashMap<PublicKeyWrapper, u64>;
 
 #[derive(Clone)]
 pub struct TransactionProof {

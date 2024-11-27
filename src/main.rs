@@ -8,6 +8,7 @@ use types::generate_salt;
 mod aggregator;
 mod client;
 mod errors;
+mod rollup;
 mod types;
 mod utils;
 
