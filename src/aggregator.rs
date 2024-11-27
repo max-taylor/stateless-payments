@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Formatter},
-};
+use std::collections::HashMap;
 
 use anyhow::anyhow;
 use bls_signatures::{aggregate, PublicKey, Signature};
@@ -10,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{TransactionProof, TransferBlock, U8_32},
+    types::common::{TransactionProof, TransferBlock, U8_32},
     utils::transaction::SimpleTransaction,
 };
 

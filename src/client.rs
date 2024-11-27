@@ -6,7 +6,7 @@ use bls_signatures::{PrivateKey, PublicKey, Signature};
 
 use crate::{
     errors::StatelessBitcoinResult,
-    types::{generate_salt, TransactionProof, U8_32},
+    types::common::{generate_salt, TransactionProof, U8_32},
     utils::transaction::SimpleTransaction,
 };
 

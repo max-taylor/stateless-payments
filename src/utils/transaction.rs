@@ -3,7 +3,7 @@ use bls_signatures::{PublicKey, Serialize};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::types::U8_32;
+use crate::types::common::U8_32;
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
 pub struct SimpleTransaction {

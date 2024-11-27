@@ -3,7 +3,6 @@
 use aggregator::Aggregator;
 use client::Client;
 use errors::StatelessBitcoinResult;
-use types::generate_salt;
 
 mod aggregator;
 mod client;
