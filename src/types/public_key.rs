@@ -6,7 +6,7 @@ use std::{
 use super::common::BlsPublicKey;
 
 // Unfortunately PublicKey does not implement Hash, so we need to wrap it
-#[derive(Clone)]
+#[derive(Clone, Debug, Copy)]
 pub struct BlsPublicKeyWrapper(BlsPublicKey);
 
 impl PartialEq for BlsPublicKeyWrapper {
@@ -33,6 +33,12 @@ impl Into<BlsPublicKey> for BlsPublicKeyWrapper {
 impl From<BlsPublicKey> for BlsPublicKeyWrapper {
     fn from(public_key: BlsPublicKey) -> Self {
         BlsPublicKeyWrapper(public_key)
+    }
+}
+
+impl From<&BlsPublicKey> for BlsPublicKeyWrapper {
+    fn from(public_key: &BlsPublicKey) -> Self {
+        BlsPublicKeyWrapper(public_key.clone())
     }
 }
 

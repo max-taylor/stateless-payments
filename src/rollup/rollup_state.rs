@@ -11,14 +11,14 @@ use crate::{
 pub trait RollupStateTrait {
     fn get_withdraw_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
 
-    fn get_account_withdraw_amount(&self, pubkey: BlsPublicKey) -> StatelessBitcoinResult<u64> {
+    fn get_account_withdraw_amount(&self, pubkey: &BlsPublicKey) -> StatelessBitcoinResult<u64> {
         let withdraw_totals = self.get_withdraw_totals()?;
         Ok(*withdraw_totals.get(&pubkey.into()).unwrap_or(&0))
     }
 
     fn get_deposit_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
 
-    fn get_account_deposit_amount(&self, pubkey: BlsPublicKey) -> StatelessBitcoinResult<u64> {
+    fn get_account_deposit_amount(&self, pubkey: &BlsPublicKey) -> StatelessBitcoinResult<u64> {
         let deposit_totals = self.get_deposit_totals()?;
         Ok(*deposit_totals.get(&pubkey.into()).unwrap_or(&0))
     }
@@ -35,6 +35,21 @@ pub trait RollupStateTrait {
             .filter(|transfer_block| transfer_block.public_keys.contains(&pubkey))
             .cloned()
             .collect())
+    }
+
+    fn get_transfer_block_for_merkle_root_and_pubkey(
+        &self,
+        merkle_root: &[u8; 32],
+        pubkey: &BlsPublicKey,
+    ) -> StatelessBitcoinResult<Option<TransferBlock>> {
+        let transfer_blocks = self.get_transfer_blocks()?;
+        Ok(transfer_blocks
+            .iter()
+            .find(|transfer_block| {
+                transfer_block.merkle_root == *merkle_root
+                    && transfer_block.public_keys.contains(&pubkey)
+            })
+            .cloned())
     }
 }
 
@@ -66,11 +81,11 @@ impl MockRollupState {
 
     pub fn add_withdraw(
         &mut self,
-        pubkey: BlsPublicKey,
+        pubkey: &BlsPublicKey,
         amount: u64,
     ) -> StatelessBitcoinResult<()> {
-        let deposit_amount = self.get_account_deposit_amount(pubkey)?;
-        let withdraw_amount = self.get_account_withdraw_amount(pubkey)?;
+        let deposit_amount = self.get_account_deposit_amount(&pubkey)?;
+        let withdraw_amount = self.get_account_withdraw_amount(&pubkey)?;
 
         dbg!(deposit_amount, withdraw_amount);
 

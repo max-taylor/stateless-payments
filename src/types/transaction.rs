@@ -57,3 +57,27 @@ impl SimpleTransaction {
         hasher.finalize().into()
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct TransactionBatch {
+    pub from: BlsPublicKey,
+    pub transactions: Vec<SimpleTransaction>,
+}
+
+impl TransactionBatch {
+    pub fn new(from: BlsPublicKey) -> Self {
+        TransactionBatch {
+            from,
+            transactions: Vec::new(),
+        }
+    }
+
+    pub fn tx_hash(&self) -> U8_32 {
+        let mut hasher = Sha256::new();
+        for tx in &self.transactions {
+            hasher.update(&tx.tx_hash());
+        }
+
+        hasher.finalize().into()
+    }
+}

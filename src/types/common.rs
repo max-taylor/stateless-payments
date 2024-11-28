@@ -6,7 +6,7 @@ use rs_merkle::MerkleProof;
 
 use crate::aggregator::Sha256Algorithm;
 
-use super::{public_key::BlsPublicKeyWrapper, transaction::SimpleTransaction};
+use super::{public_key::BlsPublicKeyWrapper, transaction::TransactionBatch};
 
 pub type U8_32 = [u8; 32];
 
@@ -45,7 +45,7 @@ impl TransferBlock {
 pub struct TransactionProof {
     pub proof_hashes: Vec<U8_32>,
     pub root: U8_32,
-    pub tx_hash: U8_32,
+    pub batch: TransactionBatch,
     pub index: usize,
     pub total_leaves: usize,
 }
@@ -55,9 +55,13 @@ impl TransactionProof {
         let merkle_proof: MerkleProof<Sha256Algorithm> =
             MerkleProof::new(self.proof_hashes.clone());
 
-        merkle_proof.verify(self.root, &[self.index], &[self.tx_hash], self.total_leaves)
+        merkle_proof.verify(
+            self.root,
+            &[self.index],
+            &[self.batch.tx_hash()],
+            self.total_leaves,
+        )
     }
 }
 
-pub type BalanceProof =
-    HashMap<(U8_32, BlsPublicKeyWrapper), (SimpleTransaction, TransactionProof)>;
+pub type BalanceProof = HashMap<(U8_32, BlsPublicKeyWrapper), TransactionProof>;

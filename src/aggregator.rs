@@ -11,6 +11,7 @@ use crate::{
             generate_salt, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock, U8_32,
         },
         public_key::BlsPublicKeyWrapper,
+        transaction::TransactionBatch,
     },
 };
 
@@ -104,19 +105,18 @@ impl Aggregator {
         self.merkle_tree.root().ok_or(anyhow!("No transactions"))
     }
 
-    pub fn generate_proof_for_tx_hash(
+    pub fn generate_proof_for_batch(
         &self,
-        tx_hash: &U8_32,
+        batch: &TransactionBatch,
         public_key: &BlsPublicKey,
     ) -> StatelessBitcoinResult<TransactionProof> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let tx_hash = *tx_hash;
         let public_key = *public_key;
 
         let TxMetadata { index, .. } = self
             .tx_hash_to_metadata
-            .get(&(tx_hash, public_key.into()))
+            .get(&(batch.tx_hash(), public_key.into()))
             .ok_or(anyhow!("Transaction not found"))?;
 
         let proof = self.merkle_tree.proof(&[*index]);
@@ -124,7 +124,7 @@ impl Aggregator {
         let merkle_proof = TransactionProof {
             proof_hashes: proof.proof_hashes().to_vec(),
             root: self.root()?,
-            tx_hash,
+            batch: batch.clone(),
             index: *index,
             total_leaves: self.merkle_tree.leaves_len(),
         };
@@ -201,14 +201,16 @@ impl Aggregator {
 mod tests {
     use crate::{
         aggregator::{Aggregator, AggregatorState},
-        client::Client,
+        client::client::Client,
         errors::StatelessBitcoinResult,
-        types::transaction::SimpleTransaction,
+        rollup::rollup_state::MockRollupState,
+        types::transaction::TransactionBatch,
     };
 
     fn setup_with_unique_accounts_and_transactions(
         num_accounts: usize,
-    ) -> StatelessBitcoinResult<(Aggregator, Vec<Client>, Vec<SimpleTransaction>)> {
+    ) -> StatelessBitcoinResult<(Aggregator, Vec<Client>, Vec<TransactionBatch>)> {
+        let mut rollup_state = MockRollupState::new();
         let mut aggregator = Aggregator::new();
         let mut accounts = (0..num_accounts)
             .into_iter()
@@ -219,16 +221,19 @@ mod tests {
         let transactions = accounts
             .iter_mut()
             .map(|account| {
+                rollup_state.add_deposit(account.public_key, 100);
+
                 let tx = account
-                    .create_transaction(receiver.public_key, 100)
-                    .unwrap();
+                    .append_transaction_to_batch(receiver.public_key, 100)
+                    .unwrap()
+                    .clone();
                 aggregator
                     .add_transaction(&tx.tx_hash(), &account.public_key)
                     .unwrap();
 
                 tx
             })
-            .collect::<Vec<SimpleTransaction>>();
+            .collect::<Vec<TransactionBatch>>();
 
         Ok((aggregator, accounts, transactions))
     }
@@ -242,7 +247,7 @@ mod tests {
 
         for (transaction, account) in transactions.iter().zip(accounts.iter()) {
             let merkle_tree_proof = aggregator
-                .generate_proof_for_tx_hash(&transaction.tx_hash(), &account.public_key)
+                .generate_proof_for_batch(&transaction, &account.public_key)
                 .unwrap();
 
             let verify_result = merkle_tree_proof.verify();
@@ -261,10 +266,10 @@ mod tests {
         aggregator.start_collecting_signatures()?;
 
         for (transaction, account) in transactions.iter().zip(accounts.iter_mut()) {
-            let merkle_tree_proof = aggregator
-                .generate_proof_for_tx_hash(&transaction.tx_hash(), &account.public_key)?;
+            let merkle_tree_proof =
+                aggregator.generate_proof_for_batch(&transaction, &account.public_key)?;
 
-            let signature = account.validate_and_sign_transaction(&merkle_tree_proof)?;
+            let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
 
             aggregator.add_signature(&transaction.tx_hash(), &account.public_key, signature)?;
         }

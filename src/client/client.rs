@@ -7,24 +7,24 @@ use crate::{
     rollup::rollup_state::RollupStateTrait,
     types::{
         common::{
-            generate_salt, BalanceProof, BlsPublicKey, BlsSecretKey, BlsSignature,
-            TransactionProof, U8_32,
+            generate_salt, BalanceProof, BlsPublicKey, BlsSecretKey, BlsSignature, TransactionProof,
         },
-        public_key::BlsPublicKeyWrapper,
-        transaction::SimpleTransaction,
+        transaction::{SimpleTransaction, TransactionBatch},
     },
 };
 
+use super::utils::{calculate_balances_and_validate_balance_proof, merge_balance_proofs};
+
 pub struct Client {
     pub public_key: BlsPublicKey,
-    pub private_key: BlsSecretKey,
+    private_key: BlsSecretKey,
 
-    // Mapping of Merkle Root -> (Transaction, TransactionProof)
-    // We use the merkle root for lookups
+    // Mapping of (Merkle Root, Sender pub key) -> TransactionProof
     pub balance_proof: BalanceProof,
     // Mapping of Transaction Hash -> Transaction
     // Use the tx_hash for lookups in this case
-    pub uncomfirmed_transactions: HashMap<U8_32, SimpleTransaction>,
+    // pub uncomfirmed_transactions: HashMap<U8_32, SimpleTransaction>,
+    pub transaction_batch: TransactionBatch,
 
     pub balance: u64,
 }
@@ -37,7 +37,8 @@ impl Client {
             private_key: private_key.clone(),
             public_key: private_key.public_key(),
             balance_proof: HashMap::new(),
-            uncomfirmed_transactions: HashMap::new(),
+            transaction_batch: TransactionBatch::new(private_key.public_key()),
+            // uncomfirmed_transactions: HashMap::new(),
             balance: 0,
         }
     }
@@ -46,23 +47,26 @@ impl Client {
         &mut self,
         rollup_state: &impl RollupStateTrait,
     ) -> StatelessBitcoinResult<()> {
-        let deposit_amount = rollup_state.get_account_deposit_amount(self.public_key)?;
-        let withdraw_amount = rollup_state.get_account_withdraw_amount(self.public_key)?;
+        let balances =
+            calculate_balances_and_validate_balance_proof(rollup_state, &self.balance_proof)?;
 
-        let transfer_blocks = rollup_state.get_account_transfer_blocks(self.public_key)?;
+        if let Some(current_users_balance) = balances.get(&self.public_key.into()) {
+            self.balance = *current_users_balance;
+        } else {
+            let deposit_amount = rollup_state.get_account_deposit_amount(&self.public_key)?;
+            let withdraw_amount = rollup_state.get_account_withdraw_amount(&self.public_key)?;
 
-        self.balance = deposit_amount - withdraw_amount;
+            self.balance = deposit_amount - withdraw_amount;
+        }
 
         Ok(())
-        // self.transaction_history = rollup_state.get_transaction_history();
-        // self.balance = rollup_state.get_balance(self.public_key);
     }
 
-    pub fn create_transaction(
+    pub fn append_transaction_to_batch(
         &mut self,
         to: BlsPublicKey,
         amount: u64,
-    ) -> StatelessBitcoinResult<SimpleTransaction> {
+    ) -> StatelessBitcoinResult<&TransactionBatch> {
         let salt = generate_salt();
 
         if to == self.public_key {
@@ -81,33 +85,24 @@ impl Client {
             .checked_sub(amount)
             .ok_or_else(|| anyhow!("Insufficient balance"))?;
 
-        self.uncomfirmed_transactions
-            .insert(transaction.tx_hash(), transaction.clone());
+        self.transaction_batch
+            .transactions
+            .push(transaction.clone());
 
-        Ok(transaction)
+        Ok(&self.transaction_batch)
     }
 
     // Called when another client sends funds to this client
-    // TODO: we actually need the other user's entire balance proof
-    // TODO: Figure out how to merge the two balance proofs
     pub fn add_receiving_transaction(
         &mut self,
-        transaction: SimpleTransaction,
-        transaction_proof: TransactionProof,
-        rollup_contract: impl RollupStateTrait,
+        transaction_proof: &TransactionProof,
+        senders_balance_proof: &BalanceProof,
+        rollup_contract: &impl RollupStateTrait,
     ) -> StatelessBitcoinResult<()> {
-        // TODO: somewhere we need to check that the transaction has been submitted on-chain, will
-        // work for both the user submitting a tx and the receiver getting a tx
-        let tx_hash = transaction_proof.tx_hash;
-
-        let transaction = self
-            .uncomfirmed_transactions
-            .get(&tx_hash)
-            .ok_or(anyhow!("Transaction not found"))?;
-
-        if transaction.to != self.public_key {
-            return Err(anyhow::anyhow!("Invalid transaction"));
-        }
+        // TODO: iterate over the batch and ensure one is addressed to this user
+        // if transaction_proof.transaction.to != self.public_key {
+        //     return Err(anyhow::anyhow!("Wrong recipient"));
+        // }
 
         // This isn't really needed because validate_and_sign_transaction will be called first and
         // it checks this, but it's here for completeness
@@ -115,35 +110,51 @@ impl Client {
             return Err(anyhow::anyhow!("Invalid transaction"));
         }
 
-        self.balance_proof.insert(
-            (transaction_proof.root, transaction.from.into()),
-            (transaction.clone(), transaction_proof.clone()),
-        );
+        if !senders_balance_proof
+            .contains_key(&(transaction_proof.root, transaction_proof.batch.from.into()))
+        {
+            return Err(anyhow!(
+                "Transaction not included in sender's balance proof"
+            ));
+        }
 
-        self.uncomfirmed_transactions.remove(&tx_hash);
+        let merged_proof =
+            merge_balance_proofs(self.balance_proof.clone(), senders_balance_proof.clone())?;
+
+        let balances =
+            calculate_balances_and_validate_balance_proof(rollup_contract, &merged_proof)?;
+
+        let current_users_balance = balances.get(&self.public_key.into()).ok_or(anyhow!(
+            "Current user's balance not found in merged balance proof"
+        ))?;
+
+        self.balance = *current_users_balance;
+        self.balance_proof = merged_proof;
 
         Ok(())
     }
 
     // This is the function that the aggregator will call to get the signature
-    // Internally we move the transaction from unconfirmed to confirmed as its been accepted by the
-    // aggregator and a block will be produced
+    // Internally we move the transaction batch to the balance proof because its been accepted
+    // by the aggregator
     //
     // ! You could validate the inclusion by using the RollupContractTrait, but doesn't seem
     // necessary
-    pub fn validate_and_sign_transaction(
+    pub fn validate_and_sign_batch(
         &mut self,
         transaction_proof: &TransactionProof,
     ) -> StatelessBitcoinResult<BlsSignature> {
-        let tx_hash = transaction_proof.tx_hash;
+        if self.transaction_batch.tx_hash() != transaction_proof.batch.tx_hash() {
+            return Err(anyhow!("Provided proof doesn't match transaction batch"));
+        }
 
-        let transaction = self
-            .uncomfirmed_transactions
-            .get(&tx_hash)
-            .ok_or(anyhow!("Transaction not found"))?;
+        // Weird error that should never happen unless aggregator sends bad data
+        if transaction_proof.batch.from != self.public_key {
+            return Err(anyhow!("Transaction batch not from this user"));
+        }
 
         if !transaction_proof.verify() {
-            return Err(anyhow::anyhow!("Invalid transaction"));
+            return Err(anyhow::anyhow!("Invalid transaction proof"));
         }
 
         let signature = self.private_key.sign(
@@ -153,62 +164,13 @@ impl Client {
 
         self.balance_proof.insert(
             (transaction_proof.root, self.public_key.into()),
-            (transaction.clone(), transaction_proof.clone()),
+            transaction_proof.clone(),
         );
 
-        self.uncomfirmed_transactions.remove(&tx_hash);
+        self.transaction_batch = TransactionBatch::new(self.public_key);
 
         Ok(signature)
     }
-}
-
-pub fn merge_balance_proofs(
-    current_client_balance_proof: BalanceProof,
-    sender_balance_proof: BalanceProof,
-) -> StatelessBitcoinResult<BalanceProof> {
-    let mut merged_balance_proof = current_client_balance_proof;
-
-    for (key, value) in sender_balance_proof {
-        if merged_balance_proof.contains_key(&key) {
-            continue;
-        }
-
-        merged_balance_proof.insert(key, value);
-    }
-
-    Ok(merged_balance_proof)
-}
-
-// TODO: Kinda needs to be recursive and validate senders balance proofs
-pub fn calculate_balances_and_validate_balance_proof(
-    rollup_state: impl RollupStateTrait,
-    balance_proof: BalanceProof,
-) -> StatelessBitcoinResult<HashMap<BlsPublicKeyWrapper, u64>> {
-    let mut balances: HashMap<BlsPublicKeyWrapper, u64> = HashMap::new();
-    let rollup_deposits = rollup_state.get_deposit_totals()?;
-    let rollup_withdrawals = rollup_state.get_withdraw_totals()?;
-
-    // for (transaction, transaction_proof) in balance_proof.values() {
-    //     transaction_proof.verify();
-    //     let sender_balance = balances.get(&transaction.from.into()).cloned().unwrap_or(0);
-    //
-    //     let receiver_balance = balances.get(&transaction.to.into()).cloned().unwrap_or(0);
-    //
-    //     balances.insert(transaction.from.into(), sender_balance - transaction.amount);
-    //     balances.insert(transaction.to.into(), receiver_balance + transaction.amount);
-    // }
-
-    Ok(balances)
-
-    // for proof in balance_proof {
-    //     if proof.transaction.to == address {
-    //         balance += proof.transaction.amount as f64;
-    //     }
-    // }
-    //
-    // balance_proof
-    //     .iter()
-    //     .all(|proof| proof.transaction.to == address)
 }
 
 #[cfg(test)]
@@ -245,7 +207,7 @@ mod tests {
     ) -> StatelessBitcoinResult<()> {
         let (mut client, mut rollup_state) = setup(100)?;
 
-        rollup_state.add_withdraw(client.public_key, 50)?;
+        rollup_state.add_withdraw(&client.public_key, 50)?;
 
         client.sync_rollup_state(&rollup_state)?;
 
@@ -271,12 +233,17 @@ mod tests {
 
         let receiver = Client::new();
 
-        let transaction = client.create_transaction(receiver.public_key, 100)?;
+        let batch = client
+            .append_transaction_to_batch(receiver.public_key, 100)?
+            .clone();
 
-        assert_eq!(transaction.from, client.public_key);
+        assert_eq!(batch.from, client.public_key);
+        assert_eq!(batch.transactions.len(), 1);
+
+        let transaction = &batch.transactions[0];
         assert_eq!(transaction.to, receiver.public_key);
         assert_eq!(transaction.amount, 100);
-        assert_eq!(client.uncomfirmed_transactions.len(), 1);
+        assert_eq!(client.transaction_batch.transactions.len(), 1);
         assert_eq!(client.balance, 0);
 
         Ok(())
@@ -288,10 +255,10 @@ mod tests {
 
         let receiver = Client::new();
 
-        let transaction = client.create_transaction(receiver.public_key, 101);
+        let transaction = client.append_transaction_to_batch(receiver.public_key, 101);
 
         assert!(transaction.is_err());
-        assert_eq!(client.uncomfirmed_transactions.len(), 0);
+        assert_eq!(client.transaction_batch.transactions.len(), 0);
 
         Ok(())
     }
@@ -301,18 +268,19 @@ mod tests {
         let (mut client, _) = setup(100)?;
         let mut aggregator = Aggregator::new();
         let receiver = Client::new();
-        let transaction = client.create_transaction(receiver.public_key, 100)?;
+        let batch = client
+            .append_transaction_to_batch(receiver.public_key, 100)?
+            .clone();
 
-        aggregator.add_transaction(&transaction.tx_hash(), &client.public_key)?;
+        aggregator.add_transaction(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;
 
-        let merkle_tree_proof =
-            aggregator.generate_proof_for_tx_hash(&transaction.tx_hash(), &client.public_key)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &client.public_key)?;
 
-        let signature = client.validate_and_sign_transaction(&merkle_tree_proof)?;
+        let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
         assert_eq!(client.balance, 0);
-        assert_eq!(client.uncomfirmed_transactions.len(), 0);
+        assert_eq!(client.transaction_batch.transactions.len(), 0);
         assert_eq!(client.balance_proof.len(), 1);
 
         let result = signature.verify(&client.public_key, &merkle_tree_proof.root);
