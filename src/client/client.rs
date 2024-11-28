@@ -43,6 +43,8 @@ impl Client {
         }
     }
 
+    // This is called somewhat intermittently to ensure the client is in sync with the contract
+    // It mainly ensures that the user's deposits and withdraws are accounted for
     pub fn sync_rollup_state(
         &mut self,
         rollup_state: &impl RollupStateTrait,

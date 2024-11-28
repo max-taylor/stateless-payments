@@ -1,6 +1,9 @@
 use stateless_bitcoin_l2::{
-    aggregator::Aggregator, client::client::Client, errors::StatelessBitcoinResult,
+    aggregator::Aggregator,
+    client::client::Client,
+    errors::StatelessBitcoinResult,
     rollup::rollup_state::MockRollupState,
+    types::common::{BalanceProof, TransactionProof},
 };
 
 #[test]
@@ -8,13 +11,16 @@ fn test_flow() -> StatelessBitcoinResult<()> {
     let mut rollup_state = MockRollupState::new();
 
     let num_accounts = 10;
+    let amount_to_increment = 100;
 
     let mut accounts = (0..num_accounts)
         .map(|idx| {
             let mut client = Client::new();
-            let amount = idx * 100 + 100;
+            let amount = idx * amount_to_increment + amount_to_increment;
             rollup_state.add_deposit(client.public_key, amount.try_into().unwrap());
             client.sync_rollup_state(&rollup_state).unwrap();
+
+            dbg!(client.balance);
 
             client
         })
@@ -43,6 +49,8 @@ fn test_flow() -> StatelessBitcoinResult<()> {
 
         aggregator.start_collecting_signatures()?;
 
+        let mut proofs: Vec<(TransactionProof, BalanceProof)> = vec![];
+
         for (idx, account) in accounts.iter_mut().enumerate() {
             if idx == num_accounts - 1 {
                 break;
@@ -50,11 +58,13 @@ fn test_flow() -> StatelessBitcoinResult<()> {
 
             let batch = account.transaction_batch.clone();
 
-            let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
+            let transaction_proof = aggregator.generate_proof_for_batch(&batch)?;
 
-            let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
+            let signature = account.validate_and_sign_batch(&transaction_proof)?;
 
             aggregator.add_signature(&batch.tx_hash(), &account.public_key, signature)?;
+
+            proofs.push((transaction_proof, account.balance_proof.clone()));
         }
 
         let block = aggregator.finalise()?;
@@ -62,11 +72,23 @@ fn test_flow() -> StatelessBitcoinResult<()> {
         rollup_state.add_transfer_block(block);
 
         for (idx, account) in accounts.iter_mut().enumerate() {
-            account.sync_rollup_state(&rollup_state)?;
+            // Add receiving transaction to the account only if it's not the first account
+            if idx != 0 {
+                account.add_receiving_transaction(
+                    &proofs[idx - 1].0,
+                    &proofs[idx - 1].1,
+                    &rollup_state,
+                )?;
+            }
 
-            dbg!(account.balance);
+            let expected_balance: u64 = if idx == num_accounts - 1 {
+                num_accounts * amount_to_increment * 2 - amount_to_increment
+            } else {
+                idx * amount_to_increment
+            }
+            .try_into()?;
 
-            // assert_eq!(account.balance, 100);
+            assert_eq!(account.balance, expected_balance);
         }
     }
 
