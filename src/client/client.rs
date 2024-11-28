@@ -100,7 +100,7 @@ impl Client {
         rollup_contract: &impl RollupStateTrait,
     ) -> StatelessBitcoinResult<()> {
         // Iterate over the batch and ensure one is addressed to this user
-        if transaction_proof
+        if !transaction_proof
             .batch
             .transactions
             .iter()
@@ -181,7 +181,8 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use crate::{
-        aggregator::Aggregator, errors::StatelessBitcoinResult,
+        aggregator::Aggregator,
+        errors::{StatelessBitcoinError, StatelessBitcoinResult},
         rollup::rollup_state::MockRollupState,
     };
 
@@ -221,6 +222,7 @@ mod tests {
         Ok(())
     }
 
+    // TODO:
     #[test]
     fn test_sync_rollup_state_errors_when_rollup_state_has_transaction_not_in_transaction_history()
     {
@@ -332,25 +334,118 @@ mod tests {
 
         let transfer_block = aggregator.finalise()?;
 
-        // rollup_state.add_transfer_block(transfer_block);
-        //
-        // alice.add_receiving_transaction(
-        //     &merkle_tree_proof,
-        //     &client.balance_proof,
-        //     &rollup_state,
-        // )?;
-        //
-        // assert_eq!(alice.balance, 100);
+        rollup_state.add_transfer_block(transfer_block);
 
-        // Adds transaction to transaction history
-        // Removed from unconfirmed transactions
-        // Validate signature
-        // Balance increases
+        alice.add_receiving_transaction(
+            &merkle_tree_proof,
+            &client.balance_proof,
+            &rollup_state,
+        )?;
+
+        assert_eq!(alice.balance, 100);
+        assert_eq!(client.balance, 200);
+
+        Ok(())
+    }
+
+    fn complete_aggregator_round(
+        sender: &mut Client,
+        rollup_state: &mut MockRollupState,
+        amount: u64,
+    ) -> StatelessBitcoinResult<Client> {
+        let mut aggregator = Aggregator::new();
+
+        let mut receiver = Client::new();
+
+        let batch = sender
+            .append_transaction_to_batch(receiver.public_key, amount)?
+            .clone();
+
+        aggregator.add_transaction(&batch.tx_hash(), &sender.public_key)?;
+        aggregator.start_collecting_signatures()?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &sender.public_key)?;
+        let signature = sender.validate_and_sign_batch(&merkle_tree_proof)?;
+
+        aggregator.add_signature(&batch.tx_hash(), &sender.public_key, signature)?;
+
+        let transfer_block = aggregator.finalise()?;
+
+        rollup_state.add_transfer_block(transfer_block);
+
+        receiver.add_receiving_transaction(
+            &merkle_tree_proof,
+            &sender.balance_proof,
+            rollup_state,
+        )?;
+
+        Ok(receiver)
+    }
+
+    #[test]
+    fn test_long_chain_of_transactions_still_can_be_spent() -> StatelessBitcoinResult<()> {
+        let amount = 100;
+
+        let (client, mut rollup_state) = setup(amount)?;
+
+        let mut next_sender = client;
+
+        for _ in 0..10 {
+            let receiver = complete_aggregator_round(&mut next_sender, &mut rollup_state, amount)?;
+
+            assert_eq!(receiver.balance, amount);
+            assert_eq!(next_sender.balance, 0);
+
+            next_sender = receiver;
+        }
+
         Ok(())
     }
 
     #[test]
-    fn test_add_receiving_transaction_fails_when_transaction_not_in_rollup_state() {
-        // Invalid transaction
+    fn test_add_receiving_transaction_fails_when_transaction_not_in_rollup_state(
+    ) -> StatelessBitcoinResult<()> {
+        let amount = 100;
+
+        let (mut client, rollup_state) = setup(amount)?;
+
+        let mut aggregator = Aggregator::new();
+
+        let mut receiver = Client::new();
+
+        let batch = client
+            .append_transaction_to_batch(receiver.public_key, amount)?
+            .clone();
+
+        aggregator.add_transaction(&batch.tx_hash(), &client.public_key)?;
+        aggregator.start_collecting_signatures()?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &client.public_key)?;
+        let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
+
+        aggregator.add_signature(&batch.tx_hash(), &client.public_key, signature)?;
+
+        // Produce the transfer block, but don't add it to the rollup state
+        aggregator.finalise()?;
+
+        let value = receiver.add_receiving_transaction(
+            &merkle_tree_proof,
+            &client.balance_proof,
+            &rollup_state,
+        );
+
+        match value {
+            Err(err) => {
+                // Downcast the anyhow::Error to your custom error
+                let custom_error = err.downcast_ref::<StatelessBitcoinError>();
+                assert_eq!(
+                    custom_error,
+                    Some(&StatelessBitcoinError::BatchNotInATransferBlock(
+                        batch.clone()
+                    ))
+                );
+            }
+            _ => assert!(false, "Expected an error"),
+        }
+
+        Ok(())
     }
 }

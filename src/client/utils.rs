@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 
 use crate::{
-    errors::StatelessBitcoinResult,
+    errors::{StatelessBitcoinError, StatelessBitcoinResult},
     rollup::rollup_state::RollupStateTrait,
     types::{common::BalanceProof, public_key::BlsPublicKeyWrapper},
 };
@@ -52,29 +52,31 @@ pub fn calculate_balances_and_validate_balance_proof(
                 &transaction_proof.root,
                 &batch.from.into(),
             )?
-            .ok_or(anyhow!(format!(
-                "Transaction not included in transfer block: {:?}",
-                batch
-            )))?;
+            .ok_or(StatelessBitcoinError::BatchNotInATransferBlock(
+                batch.clone(),
+            ))?;
 
         // Validates the aggregated signature
         transfer_block.verify()?;
 
         for transaction in batch.transactions.iter() {
+            dbg!(&transaction);
             // u64 can safely be converted to i128
             let amount: i128 = transaction.amount.into();
 
             unchecked_balances
                 .entry(batch.from.into())
                 .and_modify(|e| *e -= amount)
-                .or_insert(0);
+                .or_insert(-amount);
 
             unchecked_balances
                 .entry(transaction.to.into())
                 .and_modify(|e| *e += amount)
-                .or_insert(0);
+                .or_insert(amount);
         }
     }
+
+    dbg!(&unchecked_balances);
 
     let mut balances: HashMap<BlsPublicKeyWrapper, u64> = HashMap::new();
 

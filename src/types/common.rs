@@ -76,12 +76,12 @@ impl TransferBlock {
     pub fn contains_pubkey(&self, public_key: &BlsPublicKey) -> bool {
         match &self.signature {
             TransferBlockSignature::Aggregated(_, public_keys) => public_keys.contains(public_key),
-            TransferBlockSignature::Individual(pk, _) => pk.to_string() == public_key.to_string(),
+            TransferBlockSignature::Individual(_, pk) => pk == public_key,
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TransactionProof {
     pub proof_hashes: Vec<U8_32>,
     pub root: U8_32,

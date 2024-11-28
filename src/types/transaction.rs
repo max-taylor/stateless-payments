@@ -6,7 +6,7 @@ use crate::types::common::U8_32;
 
 use super::common::BlsPublicKey;
 
-#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
 pub struct SimpleTransaction {
     #[serde(
         serialize_with = "serialize_public_key",
@@ -58,7 +58,7 @@ impl SimpleTransaction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TransactionBatch {
     pub from: BlsPublicKey,
     pub transactions: Vec<SimpleTransaction>,
