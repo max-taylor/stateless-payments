@@ -99,10 +99,15 @@ impl Client {
         senders_balance_proof: &BalanceProof,
         rollup_contract: &impl RollupStateTrait,
     ) -> StatelessBitcoinResult<()> {
-        // TODO: iterate over the batch and ensure one is addressed to this user
-        // if transaction_proof.transaction.to != self.public_key {
-        //     return Err(anyhow::anyhow!("Wrong recipient"));
-        // }
+        // Iterate over the batch and ensure one is addressed to this user
+        if transaction_proof
+            .batch
+            .transactions
+            .iter()
+            .any(|t| t.to == self.public_key)
+        {
+            return Err(anyhow!("No transaction addressed to this user"));
+        }
 
         // This isn't really needed because validate_and_sign_transaction will be called first and
         // it checks this, but it's here for completeness
@@ -292,21 +297,51 @@ mod tests {
 
     #[test]
     fn test_adding_multiple_transactions_to_a_batch_succeeds() -> StatelessBitcoinResult<()> {
-        let (mut client, _) = setup(200)?;
+        let (mut client, _) = setup(300)?;
         let alice = Client::new();
         let mary = Client::new();
+        let bobs_uncle = Client::new();
 
         client.append_transaction_to_batch(alice.public_key, 100)?;
+        client.append_transaction_to_batch(bobs_uncle.public_key, 100)?;
         let batch = client.append_transaction_to_batch(mary.public_key, 100)?;
 
-        assert_eq!(batch.transactions.len(), 2);
-        assert_eq!(client.transaction_batch.transactions.len(), 2);
+        assert_eq!(batch.transactions.len(), 3);
+        assert_eq!(client.transaction_batch.transactions.len(), 3);
 
         Ok(())
     }
 
     #[test]
     fn test_add_receiving_transaction_succeeds() -> StatelessBitcoinResult<()> {
+        let mut aggregator = Aggregator::new();
+        let (mut client, mut rollup_state) = setup(300)?;
+        let mut alice = Client::new();
+
+        let batch = client
+            .append_transaction_to_batch(alice.public_key, 100)?
+            .clone();
+
+        aggregator.add_transaction(&batch.tx_hash(), &client.public_key)?;
+        aggregator.start_collecting_signatures()?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &client.public_key)?;
+
+        let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
+
+        aggregator.add_signature(&batch.tx_hash(), &client.public_key, signature)?;
+
+        let transfer_block = aggregator.finalise()?;
+
+        // rollup_state.add_transfer_block(transfer_block);
+        //
+        // alice.add_receiving_transaction(
+        //     &merkle_tree_proof,
+        //     &client.balance_proof,
+        //     &rollup_state,
+        // )?;
+        //
+        // assert_eq!(alice.balance, 100);
+
         // Adds transaction to transaction history
         // Removed from unconfirmed transactions
         // Validate signature

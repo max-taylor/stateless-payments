@@ -8,7 +8,8 @@ use crate::{
     errors::StatelessBitcoinResult,
     types::{
         common::{
-            generate_salt, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock, U8_32,
+            generate_salt, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock,
+            TransferBlockSignature, U8_32,
         },
         public_key::BlsPublicKeyWrapper,
         transaction::TransactionBatch,
@@ -158,22 +159,23 @@ impl Aggregator {
     pub fn finalise(&mut self) -> StatelessBitcoinResult<TransferBlock> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let mut signatures: Vec<BlsSignature> = vec![];
-        let mut public_keys: Vec<BlsPublicKey> = vec![];
+        let mut signatures_and_public_keys: Vec<(BlsPublicKey, BlsSignature)> = vec![];
 
         for tx_metadata in self.tx_hash_to_metadata.values() {
             if let Some(signature) = tx_metadata.signature {
-                signatures.push(signature);
-                public_keys.push(tx_metadata.public_key.clone());
+                signatures_and_public_keys.push((tx_metadata.public_key.clone(), signature));
             }
         }
 
-        let aggregated_signature = AggregateSignature::from_signatures(&signatures)?;
+        if signatures_and_public_keys.is_empty() {
+            return Err(anyhow!("No signatures"));
+        }
+
+        let signature = TransferBlockSignature::new(signatures_and_public_keys)?;
 
         let transfer_block = TransferBlock {
-            aggregated_signature,
+            signature,
             merkle_root: self.root()?,
-            public_keys,
         };
 
         self.state = AggregatorState::Finalised(transfer_block.clone());

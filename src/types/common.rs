@@ -4,7 +4,7 @@ use bitcoincore_rpc::bitcoin::key::rand;
 use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey, Signature};
 use rs_merkle::MerkleProof;
 
-use crate::aggregator::Sha256Algorithm;
+use crate::{aggregator::Sha256Algorithm, errors::StatelessBitcoinResult};
 
 use super::{public_key::BlsPublicKeyWrapper, transaction::TransactionBatch};
 
@@ -21,23 +21,63 @@ pub type BlsSignature = Signature<BlsType>;
 pub type BlsSecretKey = SecretKey<BlsType>;
 pub type BlsAggregateSignature = AggregateSignature<BlsType>;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum TransferBlockSignature {
+    Aggregated(BlsAggregateSignature, Vec<BlsPublicKey>),
+    Individual(BlsSignature, BlsPublicKey),
+}
+
+impl TransferBlockSignature {
+    pub fn new(values: Vec<(BlsPublicKey, BlsSignature)>) -> StatelessBitcoinResult<Self> {
+        if values.len() == 1 {
+            let public_key = values[0].0.clone();
+            let signature = values[0].1.clone();
+            Ok(TransferBlockSignature::Individual(signature, public_key))
+        } else {
+            let signatures = values
+                .iter()
+                .map(|(_, sig)| sig.clone())
+                .collect::<Vec<BlsSignature>>();
+            let aggregate_signature = BlsAggregateSignature::from_signatures(signatures)?;
+            let public_keys = values.iter().map(|(pk, _)| pk.clone()).collect();
+
+            Ok(TransferBlockSignature::Aggregated(
+                aggregate_signature,
+                public_keys,
+            ))
+        }
+    }
+}
+
 // Need to compare TransactionProofs with TransferBlocks to find which roots have been included
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransferBlock {
-    pub aggregated_signature: BlsAggregateSignature,
+    pub signature: TransferBlockSignature,
     pub merkle_root: U8_32,
-    pub public_keys: Vec<BlsPublicKey>,
 }
 
 impl TransferBlock {
     pub fn verify(&self) -> BlsResult<()> {
-        let verify_message = self
-            .public_keys
-            .iter()
-            .map(|pk| (pk.clone(), self.merkle_root))
-            .collect::<Vec<(BlsPublicKey, U8_32)>>();
+        match &self.signature {
+            TransferBlockSignature::Aggregated(sig, public_keys) => {
+                let verify_message = public_keys
+                    .iter()
+                    .map(|pk| (pk.clone(), self.merkle_root))
+                    .collect::<Vec<(BlsPublicKey, U8_32)>>();
 
-        self.aggregated_signature.verify(&verify_message)
+                sig.verify(&verify_message)
+            }
+            TransferBlockSignature::Individual(sig, public_key) => {
+                sig.verify(&public_key, self.merkle_root)
+            }
+        }
+    }
+
+    pub fn contains_pubkey(&self, public_key: &BlsPublicKey) -> bool {
+        match &self.signature {
+            TransferBlockSignature::Aggregated(_, public_keys) => public_keys.contains(public_key),
+            TransferBlockSignature::Individual(pk, _) => pk.to_string() == public_key.to_string(),
+        }
     }
 }
 

@@ -32,7 +32,7 @@ pub trait RollupStateTrait {
         let transfer_blocks = self.get_transfer_blocks()?;
         Ok(transfer_blocks
             .iter()
-            .filter(|transfer_block| transfer_block.public_keys.contains(&pubkey))
+            .filter(|transfer_block| transfer_block.contains_pubkey(&pubkey))
             .cloned()
             .collect())
     }
@@ -47,7 +47,7 @@ pub trait RollupStateTrait {
             .iter()
             .find(|transfer_block| {
                 transfer_block.merkle_root == *merkle_root
-                    && transfer_block.public_keys.contains(&pubkey)
+                    && transfer_block.contains_pubkey(&pubkey)
             })
             .cloned())
     }
