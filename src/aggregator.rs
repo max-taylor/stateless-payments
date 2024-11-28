@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use blsful::AggregateSignature;
 use indexmap::IndexMap;
 use rs_merkle::{Hasher, MerkleTree};
 use sha2::{Digest, Sha256};
@@ -70,7 +69,7 @@ impl Aggregator {
         Ok(())
     }
 
-    pub fn add_transaction(
+    pub fn add_batch(
         &mut self,
         tx_hash: &U8_32,
         public_key: &BlsPublicKey,
@@ -109,16 +108,17 @@ impl Aggregator {
     pub fn generate_proof_for_batch(
         &self,
         batch: &TransactionBatch,
-        public_key: &BlsPublicKey,
     ) -> StatelessBitcoinResult<TransactionProof> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let public_key = *public_key;
+        let public_key = batch.from;
 
         let TxMetadata { index, .. } = self
             .tx_hash_to_metadata
             .get(&(batch.tx_hash(), public_key.into()))
-            .ok_or(anyhow!("Transaction not found"))?;
+            .ok_or(anyhow!(
+                "Transaction not found, when generating proof for batch"
+            ))?;
 
         let proof = self.merkle_tree.proof(&[*index]);
 
@@ -149,7 +149,7 @@ impl Aggregator {
         let metadata = self
             .tx_hash_to_metadata
             .get_mut(&(tx_hash, public_key.into()))
-            .ok_or(anyhow!("Transaction not found"))?;
+            .ok_or(anyhow!("Transaction not found, when adding signature"))?;
 
         metadata.signature = Some(signature);
 
@@ -231,7 +231,7 @@ mod tests {
                     .unwrap()
                     .clone();
                 aggregator
-                    .add_transaction(&tx.tx_hash(), &account.public_key)
+                    .add_batch(&tx.tx_hash(), &account.public_key)
                     .unwrap();
 
                 tx
@@ -243,15 +243,12 @@ mod tests {
 
     #[test]
     fn test_can_setup_accounts_and_verify() -> StatelessBitcoinResult<()> {
-        let (mut aggregator, accounts, transactions) =
-            setup_with_unique_accounts_and_transactions(10)?;
+        let (mut aggregator, _, batches) = setup_with_unique_accounts_and_transactions(10)?;
 
         aggregator.start_collecting_signatures()?;
 
-        for (transaction, account) in transactions.iter().zip(accounts.iter()) {
-            let merkle_tree_proof = aggregator
-                .generate_proof_for_batch(&transaction, &account.public_key)
-                .unwrap();
+        for transaction in batches.iter() {
+            let merkle_tree_proof = aggregator.generate_proof_for_batch(&transaction).unwrap();
 
             let verify_result = merkle_tree_proof.verify();
 
@@ -269,8 +266,7 @@ mod tests {
         aggregator.start_collecting_signatures()?;
 
         for (transaction, account) in transactions.iter().zip(accounts.iter_mut()) {
-            let merkle_tree_proof =
-                aggregator.generate_proof_for_batch(&transaction, &account.public_key)?;
+            let merkle_tree_proof = aggregator.generate_proof_for_batch(&transaction)?;
 
             let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
 

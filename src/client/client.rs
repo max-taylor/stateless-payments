@@ -142,6 +142,8 @@ impl Client {
     // This is the function that the aggregator will call to get the signature
     // Internally we move the transaction batch to the balance proof because its been accepted
     // by the aggregator
+    // TODO: This should likely move the batch to an uncomfirmed state and then get processed when
+    // the client is synced with the contract
     //
     // ! You could validate the inclusion by using the RollupContractTrait, but doesn't seem
     // necessary
@@ -279,10 +281,10 @@ mod tests {
             .append_transaction_to_batch(receiver.public_key, 100)?
             .clone();
 
-        aggregator.add_transaction(&batch.tx_hash(), &client.public_key)?;
+        aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;
 
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &client.public_key)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
 
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
@@ -324,9 +326,9 @@ mod tests {
             .append_transaction_to_batch(alice.public_key, 100)?
             .clone();
 
-        aggregator.add_transaction(&batch.tx_hash(), &client.public_key)?;
+        aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &client.public_key)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
 
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
@@ -361,9 +363,9 @@ mod tests {
             .append_transaction_to_batch(receiver.public_key, amount)?
             .clone();
 
-        aggregator.add_transaction(&batch.tx_hash(), &sender.public_key)?;
+        aggregator.add_batch(&batch.tx_hash(), &sender.public_key)?;
         aggregator.start_collecting_signatures()?;
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &sender.public_key)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
         let signature = sender.validate_and_sign_batch(&merkle_tree_proof)?;
 
         aggregator.add_signature(&batch.tx_hash(), &sender.public_key, signature)?;
@@ -416,9 +418,9 @@ mod tests {
             .append_transaction_to_batch(receiver.public_key, amount)?
             .clone();
 
-        aggregator.add_transaction(&batch.tx_hash(), &client.public_key)?;
+        aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch, &client.public_key)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
         aggregator.add_signature(&batch.tx_hash(), &client.public_key, signature)?;

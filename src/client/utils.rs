@@ -60,7 +60,6 @@ pub fn calculate_balances_and_validate_balance_proof(
         transfer_block.verify()?;
 
         for transaction in batch.transactions.iter() {
-            dbg!(&transaction);
             // u64 can safely be converted to i128
             let amount: i128 = transaction.amount.into();
 
@@ -75,8 +74,6 @@ pub fn calculate_balances_and_validate_balance_proof(
                 .or_insert(amount);
         }
     }
-
-    dbg!(&unchecked_balances);
 
     let mut balances: HashMap<BlsPublicKeyWrapper, u64> = HashMap::new();
 
