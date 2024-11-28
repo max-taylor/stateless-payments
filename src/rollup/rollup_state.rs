@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+
 use crate::{
     errors::StatelessBitcoinResult,
     types::{
@@ -6,7 +8,7 @@ use crate::{
     },
 };
 
-pub trait RollupContractTrait {
+pub trait RollupStateTrait {
     fn get_withdraw_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
 
     fn get_account_withdraw_amount(&self, pubkey: BlsPublicKey) -> StatelessBitcoinResult<u64> {
@@ -38,7 +40,7 @@ pub trait RollupContractTrait {
 
 pub struct MockRollupState {
     pub withdraw_totals: AccountTotals,
-    pub deposit_blocks: AccountTotals,
+    pub deposit_totals: AccountTotals,
     pub transfer_blocks: Vec<TransferBlock>,
 }
 
@@ -46,31 +48,52 @@ impl MockRollupState {
     pub fn new() -> MockRollupState {
         MockRollupState {
             withdraw_totals: AccountTotals::new(),
-            deposit_blocks: AccountTotals::new(),
+            deposit_totals: AccountTotals::new(),
             transfer_blocks: vec![],
         }
     }
 
-    fn add_transfer_block(&mut self, transfer_block: TransferBlock) {
+    pub fn add_transfer_block(&mut self, transfer_block: TransferBlock) {
         self.transfer_blocks.push(transfer_block);
     }
 
-    fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) {
-        self.deposit_blocks.insert(pubkey.into(), amount);
+    pub fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) {
+        self.deposit_totals
+            .entry(pubkey.into())
+            .and_modify(|e| *e += amount)
+            .or_insert(amount);
     }
 
-    fn add_withdraw_block(&mut self, pubkey: BlsPublicKey, amount: u64) {
-        self.withdraw_totals.insert(pubkey.into(), amount);
+    pub fn add_withdraw(
+        &mut self,
+        pubkey: BlsPublicKey,
+        amount: u64,
+    ) -> StatelessBitcoinResult<()> {
+        let deposit_amount = self.get_account_deposit_amount(pubkey)?;
+        let withdraw_amount = self.get_account_withdraw_amount(pubkey)?;
+
+        dbg!(deposit_amount, withdraw_amount);
+
+        if deposit_amount < withdraw_amount + amount {
+            return Err(anyhow!("Insufficient funds"));
+        }
+
+        self.withdraw_totals
+            .entry(pubkey.into())
+            .and_modify(|e| *e += amount)
+            .or_insert(amount);
+
+        Ok(())
     }
 }
 
-impl RollupContractTrait for MockRollupState {
+impl RollupStateTrait for MockRollupState {
     fn get_withdraw_totals(&self) -> StatelessBitcoinResult<&AccountTotals> {
         Ok(&self.withdraw_totals)
     }
 
     fn get_deposit_totals(&self) -> StatelessBitcoinResult<&AccountTotals> {
-        Ok(&self.deposit_blocks)
+        Ok(&self.deposit_totals)
     }
 
     fn get_transfer_blocks(&self) -> StatelessBitcoinResult<&Vec<TransferBlock>> {

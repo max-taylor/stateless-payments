@@ -199,7 +199,6 @@ impl Aggregator {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         aggregator::{Aggregator, AggregatorState},
         client::Client,
@@ -265,7 +264,7 @@ mod tests {
             let merkle_tree_proof = aggregator
                 .generate_proof_for_tx_hash(&transaction.tx_hash(), &account.public_key)?;
 
-            let signature = account.validate_and_sign_transaction(merkle_tree_proof)?;
+            let signature = account.validate_and_sign_transaction(&merkle_tree_proof)?;
 
             aggregator.add_signature(&transaction.tx_hash(), &account.public_key, signature)?;
         }

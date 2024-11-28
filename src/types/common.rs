@@ -1,8 +1,12 @@
+use std::collections::HashMap;
+
 use bitcoincore_rpc::bitcoin::key::rand;
 use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey, Signature};
 use rs_merkle::MerkleProof;
 
 use crate::aggregator::Sha256Algorithm;
+
+use super::{public_key::BlsPublicKeyWrapper, transaction::SimpleTransaction};
 
 pub type U8_32 = [u8; 32];
 
@@ -10,10 +14,12 @@ pub fn generate_salt() -> U8_32 {
     rand::random()
 }
 
-pub type BlsPublicKey = PublicKey<Bls12381G1Impl>;
-pub type BlsSignature = Signature<Bls12381G1Impl>;
-pub type BlsSecretKey = SecretKey<Bls12381G1Impl>;
-pub type BlsAggregateSignature = AggregateSignature<Bls12381G1Impl>;
+type BlsType = Bls12381G1Impl;
+
+pub type BlsPublicKey = PublicKey<BlsType>;
+pub type BlsSignature = Signature<BlsType>;
+pub type BlsSecretKey = SecretKey<BlsType>;
+pub type BlsAggregateSignature = AggregateSignature<BlsType>;
 
 // Need to compare TransactionProofs with TransferBlocks to find which roots have been included
 #[derive(Clone, Debug, PartialEq)]
@@ -52,3 +58,6 @@ impl TransactionProof {
         merkle_proof.verify(self.root, &[self.index], &[self.tx_hash], self.total_leaves)
     }
 }
+
+pub type BalanceProof =
+    HashMap<(U8_32, BlsPublicKeyWrapper), (SimpleTransaction, TransactionProof)>;
