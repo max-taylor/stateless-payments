@@ -6,6 +6,9 @@ use stateless_bitcoin_l2::{
     types::common::{BalanceProof, TransactionProof},
 };
 
+// This test creates a number of accounts, each account sends a transaction to the next in the
+// array. This goes on recursively until the last account has all the funds.
+// This validates a relatively complex flow of transactions, proofs and dependent transactions.
 #[test]
 fn test_flow() -> StatelessBitcoinResult<()> {
     let mut rollup_state = MockRollupState::new();
@@ -16,11 +19,9 @@ fn test_flow() -> StatelessBitcoinResult<()> {
     let mut accounts = (0..num_accounts)
         .map(|idx| {
             let mut client = Client::new();
-            let amount = idx * amount_to_increment + amount_to_increment;
+            let amount = calculate_total_for_account(idx, amount_to_increment);
             rollup_state.add_deposit(client.public_key, amount.try_into().unwrap());
             client.sync_rollup_state(&rollup_state).unwrap();
-
-            dbg!(client.balance);
 
             client
         })
@@ -32,12 +33,21 @@ fn test_flow() -> StatelessBitcoinResult<()> {
         .map(|account| account.public_key)
         .collect::<Vec<_>>();
 
-    for idx in 0..1 {
+    for aggregator_loop in 0..num_accounts {
+        // Break on the last iteration because all the funds have moved to the last account
+        if aggregator_loop == num_accounts - 1 {
+            break;
+        }
+        fn skip_account(aggregator_loop: usize, account_idx: usize, num_accounts: usize) -> bool {
+            aggregator_loop > account_idx || account_idx == num_accounts - 1
+        }
+
         let mut aggregator = Aggregator::new();
 
+        // Create all the transactions
         for (idx, account) in accounts.iter_mut().enumerate() {
-            if idx == num_accounts - 1 {
-                break;
+            if skip_account(aggregator_loop, idx, num_accounts) {
+                continue;
             }
 
             let receiver = account_pubkeys[idx + 1].clone();
@@ -51,9 +61,10 @@ fn test_flow() -> StatelessBitcoinResult<()> {
 
         let mut proofs: Vec<(TransactionProof, BalanceProof)> = vec![];
 
+        // Generate proofs and sign the transactions
         for (idx, account) in accounts.iter_mut().enumerate() {
-            if idx == num_accounts - 1 {
-                break;
+            if skip_account(aggregator_loop, idx, num_accounts) {
+                continue;
             }
 
             let batch = account.transaction_batch.clone();
@@ -71,26 +82,59 @@ fn test_flow() -> StatelessBitcoinResult<()> {
 
         rollup_state.add_transfer_block(block);
 
+        // Validate the proofs and update the balances
         for (idx, account) in accounts.iter_mut().enumerate() {
             // Add receiving transaction to the account only if it's not the first account
-            if idx != 0 {
+            if idx > aggregator_loop {
+                let loop_diff = idx - aggregator_loop - 1;
                 account.add_receiving_transaction(
-                    &proofs[idx - 1].0,
-                    &proofs[idx - 1].1,
+                    &proofs[loop_diff].0,
+                    &proofs[loop_diff].1,
                     &rollup_state,
                 )?;
             }
 
-            let expected_balance: u64 = if idx == num_accounts - 1 {
-                num_accounts * amount_to_increment * 2 - amount_to_increment
-            } else {
-                idx * amount_to_increment
-            }
-            .try_into()?;
+            let expected_balance = calculate_expected_balance(
+                aggregator_loop,
+                idx,
+                num_accounts,
+                amount_to_increment,
+            )?;
 
             assert_eq!(account.balance, expected_balance);
         }
     }
 
     Ok(())
+}
+
+fn calculate_total_for_account(account_idx: usize, amount_to_increment: usize) -> usize {
+    account_idx * amount_to_increment + amount_to_increment
+}
+
+fn calculate_expected_balance(
+    aggregator_loop_idx: usize,
+    account_idx: usize,
+    num_accounts: usize,
+    amount_to_increment: usize,
+) -> StatelessBitcoinResult<u64> {
+    Ok({
+        if account_idx == num_accounts - 1 {
+            let initial_amount_for_last_account =
+                calculate_total_for_account(num_accounts - 1, amount_to_increment);
+            let total = (0..aggregator_loop_idx + 1)
+                .map(|idx| calculate_total_for_account(num_accounts - idx - 2, amount_to_increment))
+                .sum::<usize>();
+
+            total + initial_amount_for_last_account
+        } else {
+            if aggregator_loop_idx >= account_idx {
+                0
+            } else {
+                let loop_diff = account_idx - aggregator_loop_idx;
+                loop_diff * amount_to_increment
+            }
+        }
+    }
+    .try_into()?)
 }

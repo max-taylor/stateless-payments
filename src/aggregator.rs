@@ -62,6 +62,12 @@ impl Aggregator {
     }
 
     pub fn start_collecting_signatures(&mut self) -> StatelessBitcoinResult<()> {
+        if self.tx_hash_to_metadata.is_empty() {
+            return Err(anyhow!(
+                "No transactions to start collecting signatures for"
+            ));
+        }
+
         self.check_aggregator_state(AggregatorState::Open)?;
 
         self.state = AggregatorState::CollectSignatures;

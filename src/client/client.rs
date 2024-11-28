@@ -75,6 +75,10 @@ impl Client {
             return Err(anyhow!("Cannot send to self"));
         }
 
+        if amount == 0 {
+            return Err(anyhow!("Amount must be greater than 0"));
+        }
+
         let transaction = SimpleTransaction {
             to,
             from: self.public_key,
