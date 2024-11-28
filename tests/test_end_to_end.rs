@@ -27,6 +27,8 @@ fn test_flow() -> StatelessBitcoinResult<()> {
         })
         .collect::<Vec<_>>();
 
+    let total_balance = accounts.iter().map(|account| account.balance).sum::<u64>();
+
     // Need to create a copy of the public keys to avoid borrowing issues in the loop
     let account_pubkeys = accounts
         .iter()
@@ -102,6 +104,15 @@ fn test_flow() -> StatelessBitcoinResult<()> {
             )?;
 
             assert_eq!(account.balance, expected_balance);
+        }
+    }
+
+    // This is already validated above, but putting it here for clarity
+    for (idx, account) in accounts.iter().enumerate() {
+        if idx == num_accounts - 1 {
+            assert_eq!(account.balance, total_balance);
+        } else {
+            assert_eq!(account.balance, 0);
         }
     }
 

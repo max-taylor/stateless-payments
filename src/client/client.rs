@@ -230,7 +230,7 @@ mod tests {
         Ok(())
     }
 
-    // TODO:
+    // TODO: leaving for now as these are nice to have tests
     #[test]
     fn test_sync_rollup_state_errors_when_rollup_state_has_transaction_not_in_transaction_history()
     {
