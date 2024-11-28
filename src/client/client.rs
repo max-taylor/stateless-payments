@@ -291,6 +291,21 @@ mod tests {
     }
 
     #[test]
+    fn test_adding_multiple_transactions_to_a_batch_succeeds() -> StatelessBitcoinResult<()> {
+        let (mut client, _) = setup(200)?;
+        let alice = Client::new();
+        let mary = Client::new();
+
+        client.append_transaction_to_batch(alice.public_key, 100)?;
+        let batch = client.append_transaction_to_batch(mary.public_key, 100)?;
+
+        assert_eq!(batch.transactions.len(), 2);
+        assert_eq!(client.transaction_batch.transactions.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_add_receiving_transaction_succeeds() -> StatelessBitcoinResult<()> {
         // Adds transaction to transaction history
         // Removed from unconfirmed transactions

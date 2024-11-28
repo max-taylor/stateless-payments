@@ -222,6 +222,7 @@ mod tests {
             .iter_mut()
             .map(|account| {
                 rollup_state.add_deposit(account.public_key, 100);
+                account.sync_rollup_state(&rollup_state).unwrap();
 
                 let tx = account
                     .append_transaction_to_batch(receiver.public_key, 100)
