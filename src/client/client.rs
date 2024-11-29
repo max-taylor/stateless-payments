@@ -99,6 +99,10 @@ impl Client {
     }
 
     // Called when another client sends funds to this client
+    //
+    // TODO: This should validate that the rollup contract doesn't have any additional transactions
+    // that weren't apart of the senders balance proof. If they do that means the sender may be trying
+    // to double spend
     pub fn add_receiving_transaction(
         &mut self,
         transaction_proof: &TransactionProof,
