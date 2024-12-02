@@ -1,1 +1,1 @@
-fn wallet() {}
+fn main() {}

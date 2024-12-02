@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 
 use crate::{
-    errors::{CrateResult, StatelessBitcoinError},
+    errors::{CrateError, CrateResult},
     rollup::rollup_state::RollupStateTrait,
     types::{common::BalanceProof, public_key::BlsPublicKeyWrapper},
 };
@@ -52,9 +52,7 @@ pub fn calculate_balances_and_validate_balance_proof(
                 &transaction_proof.root,
                 &batch.from.into(),
             )?
-            .ok_or(StatelessBitcoinError::BatchNotInATransferBlock(
-                batch.clone(),
-            ))?;
+            .ok_or(CrateError::BatchNotInATransferBlock(batch.clone()))?;
 
         // Validates the aggregated signature
         transfer_block.verify()?;

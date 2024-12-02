@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use errors::StatelessBitcoinResult;
+use errors::CrateResult;
 use server::server::run_aggregator_server;
 use tokio;
 
@@ -12,7 +12,7 @@ mod server;
 mod types;
 
 #[tokio::main]
-async fn main() -> StatelessBitcoinResult<()> {
+async fn main() -> CrateResult<()> {
     let server = run_aggregator_server();
 
     Ok(())

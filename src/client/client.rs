@@ -191,7 +191,7 @@ impl Client {
 mod tests {
     use crate::{
         aggregator::Aggregator,
-        errors::{CrateResult, StatelessBitcoinError},
+        errors::{CrateError, CrateResult},
         rollup::rollup_state::MockRollupState,
     };
 
@@ -442,12 +442,10 @@ mod tests {
         match value {
             Err(err) => {
                 // Downcast the anyhow::Error to your custom error
-                let custom_error = err.downcast_ref::<StatelessBitcoinError>();
+                let custom_error = err.downcast_ref::<CrateError>();
                 assert_eq!(
                     custom_error,
-                    Some(&StatelessBitcoinError::BatchNotInATransferBlock(
-                        batch.clone()
-                    ))
+                    Some(&CrateError::BatchNotInATransferBlock(batch.clone()))
                 );
             }
             _ => assert!(false, "Expected an error"),

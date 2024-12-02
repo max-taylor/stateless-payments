@@ -1,4 +1,3 @@
-use bitcoincore_rpc::jsonrpc::serde_json;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
