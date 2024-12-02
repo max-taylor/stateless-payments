@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 
 use crate::{
-    errors::StatelessBitcoinResult,
+    errors::CrateResult,
     rollup::rollup_state::RollupStateTrait,
     types::{
         common::{
@@ -45,10 +45,7 @@ impl Client {
 
     // This is called somewhat intermittently to ensure the client is in sync with the contract
     // It mainly ensures that the user's deposits and withdraws are accounted for
-    pub fn sync_rollup_state(
-        &mut self,
-        rollup_state: &impl RollupStateTrait,
-    ) -> StatelessBitcoinResult<()> {
+    pub fn sync_rollup_state(&mut self, rollup_state: &impl RollupStateTrait) -> CrateResult<()> {
         let balances =
             calculate_balances_and_validate_balance_proof(rollup_state, &self.balance_proof)?;
 
@@ -68,7 +65,7 @@ impl Client {
         &mut self,
         to: BlsPublicKey,
         amount: u64,
-    ) -> StatelessBitcoinResult<&TransactionBatch> {
+    ) -> CrateResult<&TransactionBatch> {
         let salt = generate_salt();
 
         if to == self.public_key {
@@ -108,7 +105,7 @@ impl Client {
         transaction_proof: &TransactionProof,
         senders_balance_proof: &BalanceProof,
         rollup_contract: &impl RollupStateTrait,
-    ) -> StatelessBitcoinResult<()> {
+    ) -> CrateResult<()> {
         // Iterate over the batch and ensure one is addressed to this user
         if !transaction_proof
             .batch
@@ -160,7 +157,7 @@ impl Client {
     pub fn validate_and_sign_batch(
         &mut self,
         transaction_proof: &TransactionProof,
-    ) -> StatelessBitcoinResult<BlsSignature> {
+    ) -> CrateResult<BlsSignature> {
         if self.transaction_batch.tx_hash() != transaction_proof.batch.tx_hash() {
             return Err(anyhow!("Provided proof doesn't match transaction batch"));
         }
@@ -194,13 +191,13 @@ impl Client {
 mod tests {
     use crate::{
         aggregator::Aggregator,
-        errors::{StatelessBitcoinError, StatelessBitcoinResult},
+        errors::{CrateResult, StatelessBitcoinError},
         rollup::rollup_state::MockRollupState,
     };
 
     use super::Client;
 
-    fn setup(initial_deposit: u64) -> StatelessBitcoinResult<(Client, MockRollupState)> {
+    fn setup(initial_deposit: u64) -> CrateResult<(Client, MockRollupState)> {
         let mut client = Client::new();
         let mut rollup_state = MockRollupState::new();
         rollup_state.add_deposit(client.public_key, initial_deposit);
@@ -211,8 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_balance_increases_with_deposits_when_syncing_rollup_state() -> StatelessBitcoinResult<()>
-    {
+    fn test_balance_increases_with_deposits_when_syncing_rollup_state() -> CrateResult<()> {
         let (client, _) = setup(100)?;
 
         assert_eq!(client.balance, 100);
@@ -221,8 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn test_balance_decreases_with_withdrawals_when_syncing_rollup_state(
-    ) -> StatelessBitcoinResult<()> {
+    fn test_balance_decreases_with_withdrawals_when_syncing_rollup_state() -> CrateResult<()> {
         let (mut client, mut rollup_state) = setup(100)?;
 
         rollup_state.add_withdraw(&client.public_key, 50)?;
@@ -247,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_transaction_succeeds() -> StatelessBitcoinResult<()> {
+    fn test_create_transaction_succeeds() -> CrateResult<()> {
         let (mut client, _) = setup(100)?;
 
         let receiver = Client::new();
@@ -269,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_transaction_fails_with_insufficient_balance() -> StatelessBitcoinResult<()> {
+    fn test_create_transaction_fails_with_insufficient_balance() -> CrateResult<()> {
         let (mut client, _) = setup(100)?;
 
         let receiver = Client::new();
@@ -283,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_and_sign_transaction_succeeds() -> StatelessBitcoinResult<()> {
+    fn test_validate_and_sign_transaction_succeeds() -> CrateResult<()> {
         let (mut client, _) = setup(100)?;
         let mut aggregator = Aggregator::new();
         let receiver = Client::new();
@@ -310,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn test_adding_multiple_transactions_to_a_batch_succeeds() -> StatelessBitcoinResult<()> {
+    fn test_adding_multiple_transactions_to_a_batch_succeeds() -> CrateResult<()> {
         let (mut client, _) = setup(300)?;
         let alice = Client::new();
         let mary = Client::new();
@@ -327,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_receiving_transaction_succeeds() -> StatelessBitcoinResult<()> {
+    fn test_add_receiving_transaction_succeeds() -> CrateResult<()> {
         let mut aggregator = Aggregator::new();
         let (mut client, mut rollup_state) = setup(300)?;
         let mut alice = Client::new();
@@ -364,7 +359,7 @@ mod tests {
         sender: &mut Client,
         rollup_state: &mut MockRollupState,
         amount: u64,
-    ) -> StatelessBitcoinResult<Client> {
+    ) -> CrateResult<Client> {
         let mut aggregator = Aggregator::new();
 
         let mut receiver = Client::new();
@@ -394,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn test_long_chain_of_transactions_still_can_be_spent() -> StatelessBitcoinResult<()> {
+    fn test_long_chain_of_transactions_still_can_be_spent() -> CrateResult<()> {
         let amount = 100;
 
         let (client, mut rollup_state) = setup(amount)?;
@@ -414,8 +409,8 @@ mod tests {
     }
 
     #[test]
-    fn test_add_receiving_transaction_fails_when_transaction_not_in_rollup_state(
-    ) -> StatelessBitcoinResult<()> {
+    fn test_add_receiving_transaction_fails_when_transaction_not_in_rollup_state() -> CrateResult<()>
+    {
         let amount = 100;
 
         let (mut client, rollup_state) = setup(amount)?;

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 
 use crate::{
-    errors::StatelessBitcoinResult,
+    errors::CrateResult,
     types::{
         common::{BlsPublicKey, TransferBlock},
         public_key::AccountTotals,
@@ -9,26 +9,23 @@ use crate::{
 };
 
 pub trait RollupStateTrait {
-    fn get_withdraw_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
+    fn get_withdraw_totals(&self) -> CrateResult<&AccountTotals>;
 
-    fn get_account_withdraw_amount(&self, pubkey: &BlsPublicKey) -> StatelessBitcoinResult<u64> {
+    fn get_account_withdraw_amount(&self, pubkey: &BlsPublicKey) -> CrateResult<u64> {
         let withdraw_totals = self.get_withdraw_totals()?;
         Ok(*withdraw_totals.get(&pubkey.into()).unwrap_or(&0))
     }
 
-    fn get_deposit_totals(&self) -> StatelessBitcoinResult<&AccountTotals>;
+    fn get_deposit_totals(&self) -> CrateResult<&AccountTotals>;
 
-    fn get_account_deposit_amount(&self, pubkey: &BlsPublicKey) -> StatelessBitcoinResult<u64> {
+    fn get_account_deposit_amount(&self, pubkey: &BlsPublicKey) -> CrateResult<u64> {
         let deposit_totals = self.get_deposit_totals()?;
         Ok(*deposit_totals.get(&pubkey.into()).unwrap_or(&0))
     }
 
-    fn get_transfer_blocks(&self) -> StatelessBitcoinResult<&Vec<TransferBlock>>;
+    fn get_transfer_blocks(&self) -> CrateResult<&Vec<TransferBlock>>;
 
-    fn get_account_transfer_blocks(
-        &self,
-        pubkey: BlsPublicKey,
-    ) -> StatelessBitcoinResult<Vec<TransferBlock>> {
+    fn get_account_transfer_blocks(&self, pubkey: BlsPublicKey) -> CrateResult<Vec<TransferBlock>> {
         let transfer_blocks = self.get_transfer_blocks()?;
         Ok(transfer_blocks
             .iter()
@@ -41,7 +38,7 @@ pub trait RollupStateTrait {
         &self,
         merkle_root: &[u8; 32],
         pubkey: &BlsPublicKey,
-    ) -> StatelessBitcoinResult<Option<TransferBlock>> {
+    ) -> CrateResult<Option<TransferBlock>> {
         let transfer_blocks = self.get_transfer_blocks()?;
         Ok(transfer_blocks
             .iter()
@@ -79,11 +76,7 @@ impl MockRollupState {
             .or_insert(amount);
     }
 
-    pub fn add_withdraw(
-        &mut self,
-        pubkey: &BlsPublicKey,
-        amount: u64,
-    ) -> StatelessBitcoinResult<()> {
+    pub fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
         let deposit_amount = self.get_account_deposit_amount(&pubkey)?;
         let withdraw_amount = self.get_account_withdraw_amount(&pubkey)?;
 
@@ -103,15 +96,15 @@ impl MockRollupState {
 }
 
 impl RollupStateTrait for MockRollupState {
-    fn get_withdraw_totals(&self) -> StatelessBitcoinResult<&AccountTotals> {
+    fn get_withdraw_totals(&self) -> CrateResult<&AccountTotals> {
         Ok(&self.withdraw_totals)
     }
 
-    fn get_deposit_totals(&self) -> StatelessBitcoinResult<&AccountTotals> {
+    fn get_deposit_totals(&self) -> CrateResult<&AccountTotals> {
         Ok(&self.deposit_totals)
     }
 
-    fn get_transfer_blocks(&self) -> StatelessBitcoinResult<&Vec<TransferBlock>> {
+    fn get_transfer_blocks(&self) -> CrateResult<&Vec<TransferBlock>> {
         Ok(&self.transfer_blocks)
     }
 }

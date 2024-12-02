@@ -1,7 +1,7 @@
 use crate::types::transaction::TransactionBatch;
 use thiserror::Error;
 
-pub type StatelessBitcoinResult<T> = anyhow::Result<T>;
+pub type CrateResult<T> = anyhow::Result<T>;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum StatelessBitcoinError {

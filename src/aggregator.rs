@@ -4,7 +4,7 @@ use rs_merkle::{Hasher, MerkleTree};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    errors::StatelessBitcoinResult,
+    errors::CrateResult,
     types::{
         common::{
             generate_salt, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock,
@@ -61,7 +61,7 @@ impl Aggregator {
         }
     }
 
-    pub fn start_collecting_signatures(&mut self) -> StatelessBitcoinResult<()> {
+    pub fn start_collecting_signatures(&mut self) -> CrateResult<()> {
         if self.tx_hash_to_metadata.is_empty() {
             return Err(anyhow!(
                 "No transactions to start collecting signatures for"
@@ -75,11 +75,7 @@ impl Aggregator {
         Ok(())
     }
 
-    pub fn add_batch(
-        &mut self,
-        tx_hash: &U8_32,
-        public_key: &BlsPublicKey,
-    ) -> StatelessBitcoinResult<()> {
+    pub fn add_batch(&mut self, tx_hash: &U8_32, public_key: &BlsPublicKey) -> CrateResult<()> {
         self.check_aggregator_state(AggregatorState::Open)?;
 
         let tx_hash = *tx_hash;
@@ -107,14 +103,14 @@ impl Aggregator {
         Ok(())
     }
 
-    pub fn root(&self) -> StatelessBitcoinResult<U8_32> {
+    pub fn root(&self) -> CrateResult<U8_32> {
         self.merkle_tree.root().ok_or(anyhow!("No transactions"))
     }
 
     pub fn generate_proof_for_batch(
         &self,
         batch: &TransactionBatch,
-    ) -> StatelessBitcoinResult<TransactionProof> {
+    ) -> CrateResult<TransactionProof> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
         let public_key = batch.from;
@@ -144,7 +140,7 @@ impl Aggregator {
         tx_hash: &U8_32,
         public_key: &BlsPublicKey,
         signature: BlsSignature,
-    ) -> StatelessBitcoinResult<()> {
+    ) -> CrateResult<()> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
         let tx_hash = *tx_hash;
@@ -162,7 +158,7 @@ impl Aggregator {
         Ok(())
     }
 
-    pub fn finalise(&mut self) -> StatelessBitcoinResult<TransferBlock> {
+    pub fn finalise(&mut self) -> CrateResult<TransferBlock> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
         let mut signatures_and_public_keys: Vec<(BlsPublicKey, BlsSignature)> = vec![];
@@ -189,10 +185,7 @@ impl Aggregator {
         Ok(transfer_block)
     }
 
-    fn check_aggregator_state(
-        &self,
-        expected_state: AggregatorState,
-    ) -> StatelessBitcoinResult<()> {
+    fn check_aggregator_state(&self, expected_state: AggregatorState) -> CrateResult<()> {
         if self.state != expected_state {
             return Err(anyhow!(
                 "Invalid state, is {:?} but expected {:?}",
@@ -210,14 +203,14 @@ mod tests {
     use crate::{
         aggregator::{Aggregator, AggregatorState},
         client::client::Client,
-        errors::StatelessBitcoinResult,
+        errors::CrateResult,
         rollup::rollup_state::MockRollupState,
         types::transaction::TransactionBatch,
     };
 
     fn setup_with_unique_accounts_and_transactions(
         num_accounts: usize,
-    ) -> StatelessBitcoinResult<(Aggregator, Vec<Client>, Vec<TransactionBatch>)> {
+    ) -> CrateResult<(Aggregator, Vec<Client>, Vec<TransactionBatch>)> {
         let mut rollup_state = MockRollupState::new();
         let mut aggregator = Aggregator::new();
         let mut accounts = (0..num_accounts)
@@ -248,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn test_can_setup_accounts_and_verify() -> StatelessBitcoinResult<()> {
+    fn test_can_setup_accounts_and_verify() -> CrateResult<()> {
         let (mut aggregator, _, batches) = setup_with_unique_accounts_and_transactions(10)?;
 
         aggregator.start_collecting_signatures()?;
@@ -265,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_finalise() -> StatelessBitcoinResult<()> {
+    fn test_finalise() -> CrateResult<()> {
         let (mut aggregator, mut accounts, transactions) =
             setup_with_unique_accounts_and_transactions(2)?;
 

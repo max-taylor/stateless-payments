@@ -1,17 +1,17 @@
+use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey, Signature};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use rs_merkle::MerkleProof;
 use std::collections::HashMap;
 
-use bitcoincore_rpc::bitcoin::key::rand;
-use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey, Signature};
-use rs_merkle::MerkleProof;
-
-use crate::{aggregator::Sha256Algorithm, errors::StatelessBitcoinResult};
+use crate::{aggregator::Sha256Algorithm, errors::CrateResult};
 
 use super::{public_key::BlsPublicKeyWrapper, transaction::TransactionBatch};
 
 pub type U8_32 = [u8; 32];
 
 pub fn generate_salt() -> U8_32 {
-    rand::random()
+    StdRng::from_entropy().gen::<U8_32>()
 }
 
 type BlsType = Bls12381G1Impl;
@@ -28,7 +28,7 @@ pub enum TransferBlockSignature {
 }
 
 impl TransferBlockSignature {
-    pub fn new(values: Vec<(BlsPublicKey, BlsSignature)>) -> StatelessBitcoinResult<Self> {
+    pub fn new(values: Vec<(BlsPublicKey, BlsSignature)>) -> CrateResult<Self> {
         if values.len() == 1 {
             let public_key = values[0].0.clone();
             let signature = values[0].1.clone();

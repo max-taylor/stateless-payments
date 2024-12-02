@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 
 use crate::{
-    errors::{StatelessBitcoinError, StatelessBitcoinResult},
+    errors::{CrateResult, StatelessBitcoinError},
     rollup::rollup_state::RollupStateTrait,
     types::{common::BalanceProof, public_key::BlsPublicKeyWrapper},
 };
@@ -11,7 +11,7 @@ use crate::{
 pub fn merge_balance_proofs(
     current_client_balance_proof: BalanceProof,
     sender_balance_proof: BalanceProof,
-) -> StatelessBitcoinResult<BalanceProof> {
+) -> CrateResult<BalanceProof> {
     let mut merged_balance_proof = current_client_balance_proof;
 
     for (key, value) in sender_balance_proof {
@@ -30,7 +30,7 @@ pub fn merge_balance_proofs(
 pub fn calculate_balances_and_validate_balance_proof(
     rollup_state: &impl RollupStateTrait,
     balance_proof: &BalanceProof,
-) -> StatelessBitcoinResult<HashMap<BlsPublicKeyWrapper, u64>> {
+) -> CrateResult<HashMap<BlsPublicKeyWrapper, u64>> {
     // Use i128 to avoid underflow, we don't check deposit, withdrawal and tx ordering. We just
     // ensure the balance is > 0 for accounts at the end
     let mut unchecked_balances: HashMap<BlsPublicKeyWrapper, i128> = HashMap::new();

@@ -1,7 +1,7 @@
 use stateless_bitcoin_l2::{
     aggregator::Aggregator,
     client::client::Client,
-    errors::StatelessBitcoinResult,
+    errors::CrateResult,
     rollup::rollup_state::MockRollupState,
     types::common::{BalanceProof, TransactionProof},
 };
@@ -10,7 +10,7 @@ use stateless_bitcoin_l2::{
 // array. This goes on recursively until the last account has all the funds.
 // This validates a relatively complex flow of transactions, proofs and dependent transactions.
 #[test]
-fn test_flow() -> StatelessBitcoinResult<()> {
+fn test_flow() -> CrateResult<()> {
     let mut rollup_state = MockRollupState::new();
 
     let num_accounts = 10;
@@ -128,7 +128,7 @@ fn calculate_expected_balance(
     account_idx: usize,
     num_accounts: usize,
     amount_to_increment: usize,
-) -> StatelessBitcoinResult<u64> {
+) -> CrateResult<u64> {
     Ok({
         if account_idx == num_accounts - 1 {
             let initial_amount_for_last_account =

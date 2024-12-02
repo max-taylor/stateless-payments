@@ -2,17 +2,23 @@
 name = "stateless-bitcoin-l2"
 version = "0.1.0"
 edition = "2021"
+default-run = "stateless-bitcoin-l2"
 
 [dependencies]
 anyhow = "1.0.93"
-bitcoincore-rpc = "0.19.0"
 blsful = "2.5.7"
+env_logger = "0.11.5"
+futures-util = "0.3.31"
 hex-literal = "0.4.1"
 indexmap = "2.6.0"
+log = "0.4.22"
+rand = "0.8.5"
 rs_merkle = "1.4.2"
 serde = "1.0.215"
 sha2 = "0.10.8"
 thiserror = "2.0.3"
+tokio = { version = "*", features = ["full"] }
+tokio-tungstenite = "*"
 
 [lib]
 test = false

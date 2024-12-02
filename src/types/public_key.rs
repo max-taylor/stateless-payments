@@ -5,7 +5,8 @@ use std::{
 
 use super::common::BlsPublicKey;
 
-// Unfortunately PublicKey does not implement Hash, so we need to wrap it
+// Unfortunately PublicKey does not implement the Hash trait
+// And in order to use it as a key in a HashMap we need to implement the Hash trait
 #[derive(Clone, Debug, Copy)]
 pub struct BlsPublicKeyWrapper(BlsPublicKey);
 
