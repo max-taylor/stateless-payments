@@ -1,15 +1,11 @@
-use anyhow::anyhow;
 use futures_util::SinkExt;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::{
-    errors::CrateResult, server::ws_message::WsMessage, types::common::BlsPublicKey,
-    wallet::wallet::Wallet,
-};
+use crate::{errors::CrateResult, server::ws_message::WsMessage, wallet::wallet::Wallet};
 
 pub struct Client {
-    wallet: Wallet,
+    pub wallet: Wallet,
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 }
 
@@ -26,24 +22,10 @@ impl Client {
     }
 
     pub async fn send_transaction_batch(&mut self) -> CrateResult<()> {
-        if self.wallet.transaction_batch.transactions.is_empty() {
-            return Err(anyhow!("Transaction batch is empty"));
-        }
-
-        let message: Message =
-            WsMessage::CSendTransactionBatch(self.wallet.transaction_batch.clone()).into();
+        let batch = self.wallet.produce_batch()?;
+        let message: Message = WsMessage::CSendTransactionBatch(batch).into();
 
         self.socket.send(message).await?;
-
-        Ok(())
-    }
-
-    pub fn append_transaction_to_batch(
-        &mut self,
-        to: BlsPublicKey,
-        amount: u64,
-    ) -> CrateResult<()> {
-        self.wallet.append_transaction_to_batch(to, amount)?;
 
         Ok(())
     }
