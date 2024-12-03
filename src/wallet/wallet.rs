@@ -15,7 +15,7 @@ use crate::{
 
 use super::utils::{calculate_balances_and_validate_balance_proof, merge_balance_proofs};
 
-pub struct Client {
+pub struct Wallet {
     pub public_key: BlsPublicKey,
     private_key: BlsSecretKey,
 
@@ -29,11 +29,11 @@ pub struct Client {
     pub balance: u64,
 }
 
-impl Client {
-    pub fn new() -> Client {
+impl Wallet {
+    pub fn new() -> Wallet {
         let private_key = BlsSecretKey::new();
 
-        Client {
+        Wallet {
             private_key: private_key.clone(),
             public_key: private_key.public_key(),
             balance_proof: HashMap::new(),
@@ -195,10 +195,10 @@ mod tests {
         rollup::rollup_state::MockRollupState,
     };
 
-    use super::Client;
+    use super::Wallet;
 
-    fn setup(initial_deposit: u64) -> CrateResult<(Client, MockRollupState)> {
-        let mut client = Client::new();
+    fn setup(initial_deposit: u64) -> CrateResult<(Wallet, MockRollupState)> {
+        let mut client = Wallet::new();
         let mut rollup_state = MockRollupState::new();
         rollup_state.add_deposit(client.public_key, initial_deposit);
 
@@ -245,7 +245,7 @@ mod tests {
     fn test_create_transaction_succeeds() -> CrateResult<()> {
         let (mut client, _) = setup(100)?;
 
-        let receiver = Client::new();
+        let receiver = Wallet::new();
 
         let batch = client
             .append_transaction_to_batch(receiver.public_key, 100)?
@@ -267,7 +267,7 @@ mod tests {
     fn test_create_transaction_fails_with_insufficient_balance() -> CrateResult<()> {
         let (mut client, _) = setup(100)?;
 
-        let receiver = Client::new();
+        let receiver = Wallet::new();
 
         let transaction = client.append_transaction_to_batch(receiver.public_key, 101);
 
@@ -281,7 +281,7 @@ mod tests {
     fn test_validate_and_sign_transaction_succeeds() -> CrateResult<()> {
         let (mut client, _) = setup(100)?;
         let mut aggregator = Aggregator::new();
-        let receiver = Client::new();
+        let receiver = Wallet::new();
         let batch = client
             .append_transaction_to_batch(receiver.public_key, 100)?
             .clone();
@@ -307,9 +307,9 @@ mod tests {
     #[test]
     fn test_adding_multiple_transactions_to_a_batch_succeeds() -> CrateResult<()> {
         let (mut client, _) = setup(300)?;
-        let alice = Client::new();
-        let mary = Client::new();
-        let bobs_uncle = Client::new();
+        let alice = Wallet::new();
+        let mary = Wallet::new();
+        let bobs_uncle = Wallet::new();
 
         client.append_transaction_to_batch(alice.public_key, 100)?;
         client.append_transaction_to_batch(bobs_uncle.public_key, 100)?;
@@ -325,7 +325,7 @@ mod tests {
     fn test_add_receiving_transaction_succeeds() -> CrateResult<()> {
         let mut aggregator = Aggregator::new();
         let (mut client, mut rollup_state) = setup(300)?;
-        let mut alice = Client::new();
+        let mut alice = Wallet::new();
 
         let batch = client
             .append_transaction_to_batch(alice.public_key, 100)?
@@ -356,13 +356,13 @@ mod tests {
     }
 
     fn complete_aggregator_round(
-        sender: &mut Client,
+        sender: &mut Wallet,
         rollup_state: &mut MockRollupState,
         amount: u64,
-    ) -> CrateResult<Client> {
+    ) -> CrateResult<Wallet> {
         let mut aggregator = Aggregator::new();
 
-        let mut receiver = Client::new();
+        let mut receiver = Wallet::new();
 
         let batch = sender
             .append_transaction_to_batch(receiver.public_key, amount)?
@@ -417,7 +417,7 @@ mod tests {
 
         let mut aggregator = Aggregator::new();
 
-        let mut receiver = Client::new();
+        let mut receiver = Wallet::new();
 
         let batch = client
             .append_transaction_to_batch(receiver.public_key, amount)?

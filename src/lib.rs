@@ -1,5 +1,5 @@
 pub mod aggregator;
-pub mod client;
+pub mod wallet;
 pub mod constants;
 pub mod errors;
 pub mod rollup;

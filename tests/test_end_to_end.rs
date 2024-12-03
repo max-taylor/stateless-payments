@@ -1,9 +1,9 @@
 use stateless_bitcoin_l2::{
     aggregator::Aggregator,
-    client::client::Client,
     errors::CrateResult,
     rollup::rollup_state::MockRollupState,
     types::common::{BalanceProof, TransactionProof},
+    wallet::wallet::Wallet,
 };
 
 // This test creates a number of accounts, each account sends a transaction to the next in the
@@ -18,7 +18,7 @@ fn test_flow() -> CrateResult<()> {
 
     let mut accounts = (0..num_accounts)
         .map(|idx| {
-            let mut client = Client::new();
+            let mut client = Wallet::new();
             let amount = calculate_total_for_account(idx, amount_to_increment);
             rollup_state.add_deposit(client.public_key, amount.try_into().unwrap());
             client.sync_rollup_state(&rollup_state).unwrap();

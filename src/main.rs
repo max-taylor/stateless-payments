@@ -5,7 +5,7 @@ use server::server::run_aggregator_server;
 use tokio;
 
 mod aggregator;
-mod client;
+mod wallet;
 mod constants;
 mod errors;
 mod rollup;

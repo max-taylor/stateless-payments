@@ -202,22 +202,22 @@ impl Aggregator {
 mod tests {
     use crate::{
         aggregator::{Aggregator, AggregatorState},
-        client::client::Client,
         errors::CrateResult,
         rollup::rollup_state::MockRollupState,
         types::transaction::TransactionBatch,
+        wallet::wallet::Wallet,
     };
 
     fn setup_with_unique_accounts_and_transactions(
         num_accounts: usize,
-    ) -> CrateResult<(Aggregator, Vec<Client>, Vec<TransactionBatch>)> {
+    ) -> CrateResult<(Aggregator, Vec<Wallet>, Vec<TransactionBatch>)> {
         let mut rollup_state = MockRollupState::new();
         let mut aggregator = Aggregator::new();
         let mut accounts = (0..num_accounts)
             .into_iter()
-            .map(|_| Client::new())
-            .collect::<Vec<Client>>();
-        let receiver = Client::new();
+            .map(|_| Wallet::new())
+            .collect::<Vec<Wallet>>();
+        let receiver = Wallet::new();
 
         let transactions = accounts
             .iter_mut()

@@ -1,7 +1,7 @@
 use futures_util::SinkExt;
 use stateless_bitcoin_l2::{
-    client::client::Client, constants::WEBSOCKET_PORT, errors::CrateResult,
-    server::ws_message::WsMessage,
+    constants::WEBSOCKET_PORT, errors::CrateResult, server::ws_message::WsMessage,
+    wallet::wallet::Wallet,
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -9,7 +9,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 async fn main() -> CrateResult<()> {
     env_logger::init();
 
-    let client = Client::new();
+    let client = Wallet::new();
 
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{}", WEBSOCKET_PORT)).await?;
 
