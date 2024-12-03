@@ -5,6 +5,8 @@ use stateless_bitcoin_l2::{
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio_tungstenite::connect_async;
 
+mod cli;
+
 #[tokio::main]
 async fn main() -> CrateResult<()> {
     env_logger::init();
@@ -17,13 +19,11 @@ async fn main() -> CrateResult<()> {
     //     .wallet
     //     .append_transaction_to_batch(client.wallet.public_key.clone(), 100)?;
 
-    // Start tasks for user input and WebSocket handling
+    // Start tasks for user input and signal handling
     tokio::select! {
         _ = handle_user_input() => {},
-        // _ = handle_websocket_messages(read) => {},
     }
 
-    // Needs to run if the user exits the CLI with CTRL+C
     client.shutdown().await?;
 
     Ok(())
