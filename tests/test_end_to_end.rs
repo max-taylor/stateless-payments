@@ -54,7 +54,8 @@ fn test_flow() -> CrateResult<()> {
 
             let receiver = account_pubkeys[idx + 1].clone();
 
-            let batch = account.append_transaction_to_batch(receiver, account.balance)?;
+            account.append_transaction_to_batch(receiver, account.balance)?;
+            let batch = account.produce_batch()?;
 
             aggregator.add_batch(&batch.tx_hash(), &account.public_key)?;
         }

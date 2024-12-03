@@ -5,12 +5,13 @@ use server::server::run_aggregator_server;
 use tokio;
 
 mod aggregator;
-mod wallet;
+mod client;
 mod constants;
 mod errors;
 mod rollup;
 mod server;
 mod types;
+mod wallet;
 
 #[tokio::main]
 async fn main() -> CrateResult<()> {

@@ -25,6 +25,7 @@ pub struct Wallet {
     // Use the tx_hash for lookups in this case
     // pub uncomfirmed_transactions: HashMap<U8_32, SimpleTransaction>,
     pub transaction_batch: TransactionBatch,
+    batch_is_pending: bool,
 
     pub balance: u64,
 }
@@ -38,7 +39,7 @@ impl Wallet {
             public_key: private_key.public_key(),
             balance_proof: HashMap::new(),
             transaction_batch: TransactionBatch::new(private_key.public_key()),
-            // uncomfirmed_transactions: HashMap::new(),
+            batch_is_pending: false,
             balance: 0,
         }
     }
@@ -66,6 +67,10 @@ impl Wallet {
         to: BlsPublicKey,
         amount: u64,
     ) -> CrateResult<&TransactionBatch> {
+        if self.batch_is_pending {
+            return Err(anyhow!("Batch is currently pending"));
+        }
+
         let salt = generate_salt();
 
         if to == self.public_key {
@@ -93,6 +98,20 @@ impl Wallet {
             .push(transaction.clone());
 
         Ok(&self.transaction_batch)
+    }
+
+    pub fn produce_batch(&mut self) -> CrateResult<TransactionBatch> {
+        if self.transaction_batch.transactions.is_empty() {
+            return Err(anyhow!("Transaction batch is empty"));
+        }
+
+        if self.batch_is_pending {
+            return Err(anyhow!("Batch is already pending"));
+        }
+
+        self.batch_is_pending = true;
+
+        Ok(self.transaction_batch.clone())
     }
 
     // Called when another client sends funds to this client
@@ -158,6 +177,10 @@ impl Wallet {
         &mut self,
         transaction_proof: &TransactionProof,
     ) -> CrateResult<BlsSignature> {
+        if !self.batch_is_pending {
+            return Err(anyhow!("No batch to sign"));
+        }
+
         if self.transaction_batch.tx_hash() != transaction_proof.batch.tx_hash() {
             return Err(anyhow!("Provided proof doesn't match transaction batch"));
         }
@@ -180,8 +203,8 @@ impl Wallet {
             (transaction_proof.root, self.public_key.into()),
             transaction_proof.clone(),
         );
-
         self.transaction_batch = TransactionBatch::new(self.public_key);
+        self.batch_is_pending = false;
 
         Ok(signature)
     }
@@ -282,9 +305,8 @@ mod tests {
         let (mut client, _) = setup(100)?;
         let mut aggregator = Aggregator::new();
         let receiver = Wallet::new();
-        let batch = client
-            .append_transaction_to_batch(receiver.public_key, 100)?
-            .clone();
+        client.append_transaction_to_batch(receiver.public_key, 100)?;
+        let batch = client.produce_batch()?;
 
         aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;
@@ -327,9 +349,8 @@ mod tests {
         let (mut client, mut rollup_state) = setup(300)?;
         let mut alice = Wallet::new();
 
-        let batch = client
-            .append_transaction_to_batch(alice.public_key, 100)?
-            .clone();
+        client.append_transaction_to_batch(alice.public_key, 100)?;
+        let batch = client.produce_batch()?;
 
         aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;
@@ -364,9 +385,8 @@ mod tests {
 
         let mut receiver = Wallet::new();
 
-        let batch = sender
-            .append_transaction_to_batch(receiver.public_key, amount)?
-            .clone();
+        sender.append_transaction_to_batch(receiver.public_key, amount)?;
+        let batch = sender.produce_batch()?;
 
         aggregator.add_batch(&batch.tx_hash(), &sender.public_key)?;
         aggregator.start_collecting_signatures()?;
@@ -419,9 +439,8 @@ mod tests {
 
         let mut receiver = Wallet::new();
 
-        let batch = client
-            .append_transaction_to_batch(receiver.public_key, amount)?
-            .clone();
+        client.append_transaction_to_batch(receiver.public_key, amount)?;
+        let batch = client.produce_batch()?;
 
         aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
         aggregator.start_collecting_signatures()?;

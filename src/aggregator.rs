@@ -219,25 +219,27 @@ mod tests {
             .collect::<Vec<Wallet>>();
         let receiver = Wallet::new();
 
-        let transactions = accounts
+        let batches = accounts
             .iter_mut()
             .map(|account| {
                 rollup_state.add_deposit(account.public_key, 100);
                 account.sync_rollup_state(&rollup_state).unwrap();
 
-                let tx = account
+                account
                     .append_transaction_to_batch(receiver.public_key, 100)
-                    .unwrap()
-                    .clone();
-                aggregator
-                    .add_batch(&tx.tx_hash(), &account.public_key)
                     .unwrap();
 
-                tx
+                let batch = account.produce_batch().unwrap();
+
+                aggregator
+                    .add_batch(&batch.tx_hash(), &account.public_key)
+                    .unwrap();
+
+                batch
             })
             .collect::<Vec<TransactionBatch>>();
 
-        Ok((aggregator, accounts, transactions))
+        Ok((aggregator, accounts, batches))
     }
 
     #[test]
@@ -259,12 +261,12 @@ mod tests {
 
     #[test]
     fn test_finalise() -> CrateResult<()> {
-        let (mut aggregator, mut accounts, transactions) =
+        let (mut aggregator, mut accounts, batches) =
             setup_with_unique_accounts_and_transactions(2)?;
 
         aggregator.start_collecting_signatures()?;
 
-        for (transaction, account) in transactions.iter().zip(accounts.iter_mut()) {
+        for (transaction, account) in batches.iter().zip(accounts.iter_mut()) {
             let merkle_tree_proof = aggregator.generate_proof_for_batch(&transaction)?;
 
             let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
