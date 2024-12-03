@@ -75,7 +75,7 @@ fn test_flow() -> CrateResult<()> {
 
             let signature = account.validate_and_sign_batch(&transaction_proof)?;
 
-            aggregator.add_signature(&batch.tx_hash(), &account.public_key, signature)?;
+            aggregator.add_signature(&batch.tx_hash(), &account.public_key, &signature)?;
 
             proofs.push((transaction_proof, account.balance_proof.clone()));
         }

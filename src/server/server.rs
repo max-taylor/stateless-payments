@@ -1,71 +1,47 @@
-use futures_util::{SinkExt, StreamExt};
 use log::*;
-use std::{net::SocketAddr, time::Duration};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::{
-    accept_async,
-    tungstenite::{Error, Message, Result},
+use std::sync::Arc;
+use tokio::{net::TcpListener, task::JoinHandle};
+use tokio_tungstenite::tungstenite::Error;
+
+use crate::{
+    constants::WEBSOCKET_PORT,
+    errors::CrateResult,
+    server::{connection::handle_connection, server_state::ServerState},
 };
 
-use crate::{errors::CrateResult, server::constants::WEBSOCKET_PORT};
+pub fn run_aggregator_server() -> JoinHandle<CrateResult<()>> {
+    tokio::spawn(async {
+        let addr = format!("127.0.0.1:{}", WEBSOCKET_PORT);
+        let listener = TcpListener::bind(&addr).await?;
+        info!("Listening on: {}", addr);
 
-async fn accept_connection(peer: SocketAddr, stream: TcpStream) {
-    if let Err(e) = handle_connection(peer, stream).await {
-        match e {
-            Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
-            err => error!("Error processing connection: {}", err),
-        }
-    }
-}
+        let server_state = Arc::new(ServerState::new());
 
-async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
-    let ws_stream = accept_async(stream).await.expect("Failed to accept");
-    info!("New WebSocket connection: {}", peer);
-    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-    let mut interval = tokio::time::interval(Duration::from_millis(1000));
+        loop {
+            let listener_value = listener.accept().await;
 
-    // Echo incoming WebSocket messages and send a message periodically every second.
+            let server_state = server_state.clone();
 
-    loop {
-        tokio::select! {
-            msg = ws_receiver.next() => {
-                match msg {
-                    Some(msg) => {
-                        let msg = msg?;
-                        if msg.is_text() ||msg.is_binary() {
-                            ws_sender.send(msg).await?;
-                        } else if msg.is_close() {
-                            break;
+            if let Err(e) = listener_value {
+                error!("Error accepting connection: {}", e);
+                continue;
+            }
+
+            let (stream, socket_addr) = listener_value?;
+
+            tokio::spawn(async move {
+                if let Err(e) = handle_connection(socket_addr, stream, server_state).await {
+                    let custom_error = e.downcast_ref::<Error>();
+                    match custom_error {
+                        Some(Error::ConnectionClosed) => {
+                            info!("Connection closed: {}", socket_addr);
                         }
+                        _ => error!("Error handling connection: {}", e),
                     }
-                    None => break,
                 }
-            }
-            _ = interval.tick() => {
-                ws_sender.send(Message::Text("tick".to_owned())).await?;
-            }
+
+                server_state.remove_connection(&socket_addr).await;
+            });
         }
-    }
-
-    Ok(())
-}
-
-#[tokio::main]
-pub async fn run_aggregator_server() -> CrateResult<()> {
-    env_logger::init();
-
-    let addr = format!("127.0.0.1:{}", WEBSOCKET_PORT);
-    let listener = TcpListener::bind(&addr).await?;
-    info!("Listening on: {}", addr);
-
-    while let Ok((stream, _)) = listener.accept().await {
-        let peer = stream
-            .peer_addr()
-            .expect("connected streams should have a peer address");
-        info!("Peer address: {}", peer);
-
-        tokio::spawn(accept_connection(peer, stream));
-    }
-
-    Ok(())
+    })
 }

@@ -1,11 +1,11 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::types::common::U8_32;
 
 use super::common::BlsPublicKey;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimpleTransaction {
     #[serde(
         serialize_with = "serialize_public_key",
@@ -57,7 +57,7 @@ impl SimpleTransaction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionBatch {
     pub from: BlsPublicKey,
     pub transactions: Vec<SimpleTransaction>,

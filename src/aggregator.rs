@@ -139,7 +139,7 @@ impl Aggregator {
         &mut self,
         tx_hash: &U8_32,
         public_key: &BlsPublicKey,
-        signature: BlsSignature,
+        signature: &BlsSignature,
     ) -> CrateResult<()> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
@@ -153,7 +153,7 @@ impl Aggregator {
             .get_mut(&(tx_hash, public_key.into()))
             .ok_or(anyhow!("Transaction not found, when adding signature"))?;
 
-        metadata.signature = Some(signature);
+        metadata.signature = Some(*signature);
 
         Ok(())
     }
@@ -269,7 +269,7 @@ mod tests {
 
             let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
 
-            aggregator.add_signature(&transaction.tx_hash(), &account.public_key, signature)?;
+            aggregator.add_signature(&transaction.tx_hash(), &account.public_key, &signature)?;
         }
 
         let finalised_block = aggregator.finalise()?;

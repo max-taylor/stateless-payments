@@ -337,7 +337,7 @@ mod tests {
 
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
-        aggregator.add_signature(&batch.tx_hash(), &client.public_key, signature)?;
+        aggregator.add_signature(&batch.tx_hash(), &client.public_key, &signature)?;
 
         let transfer_block = aggregator.finalise()?;
 
@@ -373,7 +373,7 @@ mod tests {
         let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
         let signature = sender.validate_and_sign_batch(&merkle_tree_proof)?;
 
-        aggregator.add_signature(&batch.tx_hash(), &sender.public_key, signature)?;
+        aggregator.add_signature(&batch.tx_hash(), &sender.public_key, &signature)?;
 
         let transfer_block = aggregator.finalise()?;
 
@@ -428,7 +428,7 @@ mod tests {
         let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
-        aggregator.add_signature(&batch.tx_hash(), &client.public_key, signature)?;
+        aggregator.add_signature(&batch.tx_hash(), &client.public_key, &signature)?;
 
         // Produce the transfer block, but don't add it to the rollup state
         aggregator.finalise()?;
