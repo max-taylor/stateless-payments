@@ -39,8 +39,6 @@ pub fn run_aggregator_server() -> JoinHandle<CrateResult<()>> {
                         _ => error!("Error handling connection: {}", e),
                     }
                 }
-
-                server_state.remove_connection(&socket_addr).await;
             });
         }
     })

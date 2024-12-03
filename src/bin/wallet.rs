@@ -15,16 +15,9 @@ async fn main() -> CrateResult<()> {
 
     let message: Message = WsMessage::CAddConnection(client.public_key.clone()).into();
 
-    // dbg!(&message);
-
     socket.send(message).await?;
 
     socket.close(None).await?;
-
-    // match run_aggregator_server().await {
-    //     Ok(_) => {}
-    //     Err(e) => eprintln!("Server exited with error: {}", e),
-    // }
 
     Ok(())
 }

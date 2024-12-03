@@ -24,7 +24,10 @@ struct ConnectionGuard {
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
         info!("Removing connection: {:?}", self.public_key);
-        self.server_state.remove_connection(&self.public_key);
+        // This allows use to await the future inside a non-await function
+        tokio::runtime::Handle::current().block_on(async move {
+            self.server_state.remove_connection(&self.public_key).await;
+        });
     }
 }
 
