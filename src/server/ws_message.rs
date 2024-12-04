@@ -12,7 +12,7 @@ pub enum WsMessage {
     // Messages prefixed with C are sent by the client
     CAddConnection(BlsPublicKey),
     CSendTransactionBatch(TransactionBatch),
-    CSendTransactionBatchSignature(U8_32, BlsPublicKey, BlsSignature),
+    CSendTransactionBatchSignature(BlsPublicKey, BlsSignature),
 
     // Messages prefixed with S are sent by the server
     SSendTransactionInclusionProof(U8_32, BlsPublicKey, BlsSignature),

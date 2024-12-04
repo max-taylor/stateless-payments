@@ -32,7 +32,7 @@ impl Hasher for Sha256Algorithm {
 #[derive(Clone)]
 pub struct TxMetadata {
     index: usize,
-    public_key: BlsPublicKey,
+    batch: TransactionBatch,
     signature: Option<BlsSignature>,
 }
 
@@ -44,7 +44,7 @@ pub enum AggregatorState {
 }
 
 pub struct Aggregator {
-    pub tx_hash_to_metadata: IndexMap<(U8_32, BlsPublicKeyWrapper), TxMetadata>,
+    pub tx_hash_to_metadata: IndexMap<BlsPublicKeyWrapper, TxMetadata>,
     pub merkle_tree: MerkleTree<Sha256Algorithm>,
 
     pub state: AggregatorState,
@@ -75,30 +75,25 @@ impl Aggregator {
         Ok(())
     }
 
-    pub fn add_batch(&mut self, tx_hash: &U8_32, public_key: &BlsPublicKey) -> CrateResult<()> {
+    pub fn add_batch(&mut self, batch: &TransactionBatch) -> CrateResult<()> {
         self.check_aggregator_state(AggregatorState::Open)?;
 
-        let tx_hash = *tx_hash;
-        let public_key = *public_key;
-
-        if self
-            .tx_hash_to_metadata
-            .contains_key(&(tx_hash, public_key.into()))
-        {
+        let public_key_wrapper: BlsPublicKeyWrapper = batch.from.into();
+        if self.tx_hash_to_metadata.contains_key(&public_key_wrapper) {
             return Err(anyhow!("Transaction already exists"));
         }
 
         let index = self.merkle_tree.leaves_len();
 
         self.tx_hash_to_metadata.insert(
-            (tx_hash, public_key.into()),
+            public_key_wrapper,
             TxMetadata {
                 index,
-                public_key,
+                batch: batch.clone(),
                 signature: None,
             },
         );
-        self.merkle_tree.insert(tx_hash).commit();
+        self.merkle_tree.insert(batch.tx_hash()).commit();
 
         Ok(())
     }
@@ -113,14 +108,11 @@ impl Aggregator {
     ) -> CrateResult<TransactionProof> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let public_key = batch.from;
+        let public_key: BlsPublicKeyWrapper = batch.from.into();
 
-        let TxMetadata { index, .. } = self
-            .tx_hash_to_metadata
-            .get(&(batch.tx_hash(), public_key.into()))
-            .ok_or(anyhow!(
-                "Transaction not found, when generating proof for batch"
-            ))?;
+        let TxMetadata { index, .. } = self.tx_hash_to_metadata.get(&public_key).ok_or(anyhow!(
+            "Transaction not found, when generating proof for batch"
+        ))?;
 
         let proof = self.merkle_tree.proof(&[*index]);
 
@@ -137,20 +129,19 @@ impl Aggregator {
 
     pub fn add_signature(
         &mut self,
-        tx_hash: &U8_32,
         public_key: &BlsPublicKey,
         signature: &BlsSignature,
     ) -> CrateResult<()> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let tx_hash = *tx_hash;
         let public_key = *public_key;
 
         signature.verify(&public_key, self.root()?)?;
 
+        let public_key_wrapper: BlsPublicKeyWrapper = public_key.into();
         let metadata = self
             .tx_hash_to_metadata
-            .get_mut(&(tx_hash, public_key.into()))
+            .get_mut(&public_key_wrapper)
             .ok_or(anyhow!("Transaction not found, when adding signature"))?;
 
         metadata.signature = Some(*signature);
@@ -165,7 +156,7 @@ impl Aggregator {
 
         for tx_metadata in self.tx_hash_to_metadata.values() {
             if let Some(signature) = tx_metadata.signature {
-                signatures_and_public_keys.push((tx_metadata.public_key.clone(), signature));
+                signatures_and_public_keys.push((tx_metadata.batch.from.clone(), signature));
             }
         }
 
@@ -222,7 +213,7 @@ mod tests {
         let batches = accounts
             .iter_mut()
             .map(|account| {
-                rollup_state.add_deposit(account.public_key, 100);
+                rollup_state.add_deposit(account.public_key, 100).unwrap();
                 account.sync_rollup_state(&rollup_state).unwrap();
 
                 account
@@ -231,9 +222,7 @@ mod tests {
 
                 let batch = account.produce_batch().unwrap();
 
-                aggregator
-                    .add_batch(&batch.tx_hash(), &account.public_key)
-                    .unwrap();
+                aggregator.add_batch(&batch).unwrap();
 
                 batch
             })
@@ -271,7 +260,7 @@ mod tests {
 
             let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
 
-            aggregator.add_signature(&transaction.tx_hash(), &account.public_key, &signature)?;
+            aggregator.add_signature(&account.public_key, &signature)?;
         }
 
         let finalised_block = aggregator.finalise()?;

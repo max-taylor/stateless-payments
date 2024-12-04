@@ -10,8 +10,9 @@ use crate::{
     errors::CrateResult,
     rollup::mock_rollup_fs::MockRollupFS,
     types::{
-        common::{BlsPublicKey, BlsSignature, U8_32},
+        common::{BlsPublicKey, BlsSignature},
         public_key::BlsPublicKeyWrapper,
+        transaction::TransactionBatch,
     },
 };
 
@@ -66,16 +67,16 @@ impl ServerState {
             match self.connections.get_mut(connection) {
                 // TODO: Needs to send the inclusion proof to the user
                 Some(connection) => {
-                    if let Err(e) = connection
-                        .ws_send
-                        .send(WsMessage::SStartCollectingSignatures.into())
-                        .await
-                    {
-                        error!(
-                            "Failed to send start collecting signatures message: {:?}",
-                            e
-                        );
-                    }
+                    // if let Err(e) = connection
+                    //     .ws_send
+                    //     .send(WsMessage::SStartCollectingSignatures.into())
+                    //     .await
+                    // {
+                    //     error!(
+                    //         "Failed to send start collecting signatures message: {:?}",
+                    //         e
+                    //     );
+                    // }
                 }
                 None => {
                     warn!("Connection not found for public key: {:?}", connection);
@@ -86,24 +87,22 @@ impl ServerState {
         Ok(Some(()))
     }
 
-    pub fn add_batch(&mut self, tx_hash: &U8_32, public_key: &BlsPublicKey) -> CrateResult<()> {
-        self.aggregator.add_batch(tx_hash, public_key)?;
+    pub fn add_batch(&mut self, batch: &TransactionBatch) -> CrateResult<()> {
+        self.aggregator.add_batch(batch)?;
 
         self.connections_with_tx
-            .insert(public_key.clone().into(), false);
+            .insert(batch.from.clone().into(), false);
 
         Ok(())
     }
 
     pub fn add_signature(
         &mut self,
-        tx_hash: &U8_32,
         public_key: &BlsPublicKey,
         signature: &BlsSignature,
     ) -> CrateResult<()> {
         // This checks for the existence of the transaction and public key
-        self.aggregator
-            .add_signature(tx_hash, public_key, signature)?;
+        self.aggregator.add_signature(public_key, signature)?;
 
         self.connections_with_tx
             .insert(public_key.clone().into(), true);

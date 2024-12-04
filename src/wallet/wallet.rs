@@ -312,7 +312,7 @@ mod tests {
         client.append_transaction_to_batch(receiver.public_key, 100)?;
         let batch = client.produce_batch()?;
 
-        aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
+        aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
 
         let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
@@ -356,13 +356,13 @@ mod tests {
         client.append_transaction_to_batch(alice.public_key, 100)?;
         let batch = client.produce_batch()?;
 
-        aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
+        aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
         let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
 
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
-        aggregator.add_signature(&batch.tx_hash(), &client.public_key, &signature)?;
+        aggregator.add_signature(&client.public_key, &signature)?;
 
         let transfer_block = aggregator.finalise()?;
 
@@ -392,16 +392,16 @@ mod tests {
         sender.append_transaction_to_batch(receiver.public_key, amount)?;
         let batch = sender.produce_batch()?;
 
-        aggregator.add_batch(&batch.tx_hash(), &sender.public_key)?;
+        aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
         let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
         let signature = sender.validate_and_sign_batch(&merkle_tree_proof)?;
 
-        aggregator.add_signature(&batch.tx_hash(), &sender.public_key, &signature)?;
+        aggregator.add_signature(&sender.public_key, &signature)?;
 
         let transfer_block = aggregator.finalise()?;
 
-        rollup_state.add_transfer_block(transfer_block);
+        rollup_state.add_transfer_block(transfer_block)?;
 
         receiver.add_receiving_transaction(
             &merkle_tree_proof,
@@ -446,12 +446,12 @@ mod tests {
         client.append_transaction_to_batch(receiver.public_key, amount)?;
         let batch = client.produce_batch()?;
 
-        aggregator.add_batch(&batch.tx_hash(), &client.public_key)?;
+        aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
         let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
         let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
 
-        aggregator.add_signature(&batch.tx_hash(), &client.public_key, &signature)?;
+        aggregator.add_signature(&client.public_key, &signature)?;
 
         // Produce the transfer block, but don't add it to the rollup state
         aggregator.finalise()?;

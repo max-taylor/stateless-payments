@@ -68,15 +68,15 @@ fn spawn_ws_receive_handler(
             if let Some(msg) = ws_receive.next().await {
                 let ws_message = parse_ws_message(msg?)?;
 
-                match ws_message {
-                    WsMessage::SStartCollectingSignatures => {
-                        let mut client = client.lock().await;
-                        client.send_transaction_batch().await?;
-                    }
-                    _ => {
-                        return Err(anyhow!("Invalid message type"));
-                    }
-                }
+                // match ws_message {
+                //     WsMessage::SStartCollectingSignatures => {
+                //         let mut client = client.lock().await;
+                //         client.send_transaction_batch().await?;
+                //     }
+                //     _ => {
+                //         return Err(anyhow!("Invalid message type"));
+                //     }
+                // }
             }
         }
     })

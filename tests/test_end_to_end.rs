@@ -62,7 +62,7 @@ fn test_flow() -> CrateResult<()> {
             account.append_transaction_to_batch(receiver, account.balance)?;
             let batch = account.produce_batch()?;
 
-            aggregator.add_batch(&batch.tx_hash(), &account.public_key)?;
+            aggregator.add_batch(&batch)?;
         }
 
         aggregator.start_collecting_signatures()?;
@@ -81,7 +81,7 @@ fn test_flow() -> CrateResult<()> {
 
             let signature = account.validate_and_sign_batch(&transaction_proof)?;
 
-            aggregator.add_signature(&batch.tx_hash(), &account.public_key, &signature)?;
+            aggregator.add_signature(&account.public_key, &signature)?;
 
             proofs.push((transaction_proof, account.balance_proof.clone()));
         }

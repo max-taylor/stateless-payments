@@ -97,20 +97,14 @@ async fn handle_loop(
                 "Received transaction batch from: {:?}",
                 serde_json::to_string(&transaction_batch.from)?,
             );
-            server_state
-                .lock()
-                .await
-                .add_batch(&transaction_batch.tx_hash(), &transaction_batch.from)?;
+            server_state.lock().await.add_batch(&transaction_batch)?;
         }
-        WsMessage::CSendTransactionBatchSignature(tx_hash, from, signature) => {
+        WsMessage::CSendTransactionBatchSignature(from, signature) => {
             info!(
                 "Received transaction batch signature from: {:?}",
                 serde_json::to_string(&from)?,
             );
-            server_state
-                .lock()
-                .await
-                .add_signature(&tx_hash, &from, &signature)?;
+            server_state.lock().await.add_signature(&from, &signature)?;
         }
         _ => {
             return Err(anyhow!("Invalid message type"));
