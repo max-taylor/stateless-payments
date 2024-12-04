@@ -2,6 +2,7 @@ use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rs_merkle::MerkleProof;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{aggregator::Sha256Algorithm, errors::CrateResult};
@@ -21,7 +22,7 @@ pub type BlsSignature = Signature<BlsType>;
 pub type BlsSecretKey = SecretKey<BlsType>;
 pub type BlsAggregateSignature = AggregateSignature<BlsType>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TransferBlockSignature {
     Aggregated(BlsAggregateSignature, Vec<BlsPublicKey>),
     Individual(BlsSignature, BlsPublicKey),
@@ -50,7 +51,7 @@ impl TransferBlockSignature {
 }
 
 // Need to compare TransactionProofs with TransferBlocks to find which roots have been included
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TransferBlock {
     pub signature: TransferBlockSignature,
     pub merkle_root: U8_32,

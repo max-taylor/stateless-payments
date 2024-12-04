@@ -4,7 +4,7 @@ use anyhow::anyhow;
 
 use crate::{
     errors::CrateResult,
-    rollup::rollup_state::RollupStateTrait,
+    rollup::traits::RollupStateTrait,
     types::{
         common::{
             generate_salt, BalanceProof, BlsPublicKey, BlsSecretKey, BlsSignature, TransactionProof,
@@ -216,14 +216,14 @@ mod tests {
     use crate::{
         aggregator::Aggregator,
         errors::{CrateError, CrateResult},
-        rollup::rollup_state::{MockRollupState, MockRollupStateTrait},
+        rollup::{mock_rollup_memory::MockRollupMemory, traits::MockRollupStateTrait},
     };
 
     use super::Wallet;
 
-    fn setup(initial_deposit: u64) -> CrateResult<(Wallet, MockRollupState)> {
+    fn setup(initial_deposit: u64) -> CrateResult<(Wallet, MockRollupMemory)> {
         let mut client = Wallet::new();
-        let mut rollup_state = MockRollupState::new();
+        let mut rollup_state = MockRollupMemory::new();
         rollup_state.add_deposit(client.public_key, initial_deposit);
 
         client.sync_rollup_state(&rollup_state).unwrap();
@@ -379,7 +379,7 @@ mod tests {
 
     fn complete_aggregator_round(
         sender: &mut Wallet,
-        rollup_state: &mut MockRollupState,
+        rollup_state: &mut MockRollupMemory,
         amount: u64,
     ) -> CrateResult<Wallet> {
         let mut aggregator = Aggregator::new();

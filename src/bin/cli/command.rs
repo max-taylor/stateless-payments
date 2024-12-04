@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn test_append_tx_to_batch() -> CrateResult<()> {
         let pubkey_string = "808868b2d0b654328c66f5b005758db14415ed1e2a6db7eb9177721cd4d55a332b0b2805b531c4b71308af26827526ed19ba9745dccfba815b7411ef93f26111e7ed041466aa724f5ce1c4b074cf957ea874ac72b5ae29878cbbfed10095f45d";
-        let command_string = format!("send_tx {} 100", pubkey_string);
+        let command_string = format!("append_tx {} 100", pubkey_string);
         let command = Command::try_from(command_string.as_str())?;
 
         match command {

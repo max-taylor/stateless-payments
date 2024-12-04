@@ -4,7 +4,7 @@ use anyhow::anyhow;
 
 use crate::{
     errors::{CrateError, CrateResult},
-    rollup::rollup_state::RollupStateTrait,
+    rollup::traits::RollupStateTrait,
     types::{common::BalanceProof, public_key::BlsPublicKeyWrapper},
 };
 

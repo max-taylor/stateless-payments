@@ -3,11 +3,13 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+use serde::{Deserialize, Serialize};
+
 use super::common::BlsPublicKey;
 
 // Unfortunately PublicKey does not implement the Hash trait
 // And in order to use it as a key in a HashMap we need to implement the Hash trait
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub struct BlsPublicKeyWrapper(BlsPublicKey);
 
 impl PartialEq for BlsPublicKeyWrapper {

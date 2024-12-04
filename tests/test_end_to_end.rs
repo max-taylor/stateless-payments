@@ -1,7 +1,7 @@
 use stateless_bitcoin_l2::{
     aggregator::Aggregator,
     errors::CrateResult,
-    rollup::rollup_state::{MockRollupState, MockRollupStateTrait},
+    rollup::{mock_rollup_memory::MockRollupMemory, traits::MockRollupStateTrait},
     types::common::{BalanceProof, TransactionProof},
     wallet::wallet::Wallet,
 };
@@ -11,7 +11,7 @@ use stateless_bitcoin_l2::{
 // This validates a relatively complex flow of transactions, proofs and dependent transactions.
 #[test]
 fn test_flow() -> CrateResult<()> {
-    let mut rollup_state = MockRollupState::new();
+    let mut rollup_state = MockRollupMemory::new();
 
     let num_accounts = 10;
     let amount_to_increment = 100;
@@ -20,7 +20,9 @@ fn test_flow() -> CrateResult<()> {
         .map(|idx| {
             let mut client = Wallet::new();
             let amount = calculate_total_for_account(idx, amount_to_increment);
-            rollup_state.add_deposit(client.public_key, amount.try_into().unwrap());
+            rollup_state
+                .add_deposit(client.public_key, amount.try_into().unwrap())
+                .unwrap();
             client.sync_rollup_state(&rollup_state).unwrap();
 
             client
@@ -83,7 +85,7 @@ fn test_flow() -> CrateResult<()> {
 
         let block = aggregator.finalise()?;
 
-        rollup_state.add_transfer_block(block);
+        rollup_state.add_transfer_block(block)?;
 
         // Validate the proofs and update the balances
         for (idx, account) in accounts.iter_mut().enumerate() {

@@ -203,7 +203,7 @@ mod tests {
     use crate::{
         aggregator::{Aggregator, AggregatorState},
         errors::CrateResult,
-        rollup::rollup_state::{MockRollupState, MockRollupStateTrait},
+        rollup::{mock_rollup_memory::MockRollupMemory, traits::MockRollupStateTrait},
         types::transaction::TransactionBatch,
         wallet::wallet::Wallet,
     };
@@ -211,7 +211,7 @@ mod tests {
     fn setup_with_unique_accounts_and_transactions(
         num_accounts: usize,
     ) -> CrateResult<(Aggregator, Vec<Wallet>, Vec<TransactionBatch>)> {
-        let mut rollup_state = MockRollupState::new();
+        let mut rollup_state = MockRollupMemory::new();
         let mut aggregator = Aggregator::new();
         let mut accounts = (0..num_accounts)
             .into_iter()
