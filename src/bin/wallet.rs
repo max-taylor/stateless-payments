@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use cli::user_input::spawn_user_input_handler;
 use futures_util::{stream::SplitStream, StreamExt};
 use stateless_bitcoin_l2::{

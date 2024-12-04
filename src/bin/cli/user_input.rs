@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use log::info;
 use stateless_bitcoin_l2::{client::client::Client, errors::CrateResult};
 use tokio::{
@@ -82,6 +83,6 @@ pub fn spawn_user_input_handler(client: Arc<Mutex<Client>>) -> JoinHandle<CrateR
             stdout.flush().await?;
         }
 
-        Ok(())
+        Err(anyhow!("User input handler exited"))
     })
 }

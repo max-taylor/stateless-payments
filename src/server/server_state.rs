@@ -59,6 +59,8 @@ impl ServerState {
         // Validates that there are transactions to collect signatures for
         self.aggregator.start_collecting_signatures()?;
 
+        // TODO: Send inclusion proofs to all the clients
+
         info!("Starting to collect signatures");
         for (connection, _) in self.connections_with_tx.iter() {
             match self.connections.get_mut(connection) {

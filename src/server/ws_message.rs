@@ -15,7 +15,7 @@ pub enum WsMessage {
     CSendTransactionBatchSignature(U8_32, BlsPublicKey, BlsSignature),
 
     // Messages prefixed with S are sent by the server
-    SStartCollectingSignatures,
+    SSendTransactionInclusionProof(U8_32, BlsPublicKey, BlsSignature),
     SFinalised(TransferBlock),
 }
 
