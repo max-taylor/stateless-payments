@@ -1,4 +1,4 @@
-use futures_util::SinkExt;
+use futures_util::{stream::SplitSink, SinkExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
@@ -7,33 +7,33 @@ use crate::{errors::CrateResult, server::ws_message::WsMessage, wallet::wallet::
 #[derive(Debug)]
 pub struct Client {
     pub wallet: Wallet,
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    ws_send: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 }
 
 impl Client {
     pub async fn new(
         wallet: Wallet,
-        mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+        mut ws_send: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ) -> CrateResult<Self> {
         // Register the wallet's public key with the server
         let message: Message = WsMessage::CAddConnection(wallet.public_key.clone()).into();
-        socket.send(message).await?;
+        ws_send.send(message).await?;
 
-        Ok(Self { wallet, socket })
+        Ok(Self { wallet, ws_send })
     }
 
     pub async fn send_transaction_batch(&mut self) -> CrateResult<()> {
         let batch = self.wallet.produce_batch()?;
         let message: Message = WsMessage::CSendTransactionBatch(batch).into();
 
-        self.socket.send(message).await?;
+        self.ws_send.send(message).await?;
 
         Ok(())
     }
 
-    pub async fn shutdown(&mut self) -> CrateResult<()> {
-        self.socket.close(None).await?;
-
-        Ok(())
-    }
+    // pub async fn shutdown(&mut self) -> CrateResult<()> {
+    //     self.ws_send.close(None).await?;
+    //
+    //     Ok(())
+    // }
 }

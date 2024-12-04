@@ -62,6 +62,7 @@ impl ServerState {
         info!("Starting to collect signatures");
         for (connection, _) in self.connections_with_tx.iter() {
             match self.connections.get_mut(connection) {
+                // TODO: Needs to send the inclusion proof to the user
                 Some(connection) => {
                     if let Err(e) = connection
                         .ws_send
