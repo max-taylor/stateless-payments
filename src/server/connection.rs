@@ -100,7 +100,7 @@ async fn handle_loop(
             server_state
                 .lock()
                 .await
-                .add_batch(&transaction_batch.tx_hash(), &transaction_batch.from);
+                .add_batch(&transaction_batch.tx_hash(), &transaction_batch.from)?;
         }
         WsMessage::CSendTransactionBatchSignature(tx_hash, from, signature) => {
             info!(

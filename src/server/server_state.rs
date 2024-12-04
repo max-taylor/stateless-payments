@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use futures_util::{stream::SplitSink, SinkExt};
-use log::{error, warn};
+use log::{error, info, warn};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
@@ -50,9 +50,16 @@ impl ServerState {
         self.connections.remove(&public_key.into());
     }
 
-    pub async fn start_collecing_signatures(&mut self) -> CrateResult<()> {
+    pub async fn start_collecing_signatures(&mut self) -> CrateResult<Option<()>> {
+        if self.aggregator.tx_hash_to_metadata.len() == 0 {
+            info!("No transactions to start collecting signatures for");
+            return Ok(None);
+        }
+
+        // Validates that there are transactions to collect signatures for
         self.aggregator.start_collecting_signatures()?;
 
+        info!("Starting to collect signatures");
         for (connection, _) in self.connections_with_tx.iter() {
             match self.connections.get_mut(connection) {
                 Some(connection) => {
@@ -73,14 +80,10 @@ impl ServerState {
             }
         }
 
-        Ok(())
+        Ok(Some(()))
     }
 
-    pub async fn add_batch(
-        &mut self,
-        tx_hash: &U8_32,
-        public_key: &BlsPublicKey,
-    ) -> CrateResult<()> {
+    pub fn add_batch(&mut self, tx_hash: &U8_32, public_key: &BlsPublicKey) -> CrateResult<()> {
         self.aggregator.add_batch(tx_hash, public_key)?;
 
         self.connections_with_tx
@@ -105,8 +108,11 @@ impl ServerState {
         Ok(())
     }
 
-    pub async fn finalise(&mut self) -> CrateResult<()> {
+    pub async fn finalise(&mut self) {
+        info!("Finalising aggregator");
+
         // Finalise and message all the connections
+        // aggregator.finalise does a variety of checks to ensure the aggregator is in the correct state
         match self.aggregator.finalise() {
             Ok(transfer_block) => {
                 for connection in self.connections.values_mut() {
@@ -126,7 +132,5 @@ impl ServerState {
 
         // Create a new aggregator now we have finalised
         self.aggregator = Aggregator::new();
-
-        Ok(())
     }
 }

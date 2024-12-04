@@ -4,20 +4,39 @@ use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::tungstenite::Error;
 
 use crate::{
-    aggregator::AggregatorState,
     constants::WEBSOCKET_PORT,
     errors::CrateResult,
-    rollup::mock_rollup_fs::MockRollupFS,
     server::{connection::handle_connection, server_state::ServerState},
 };
 
-pub fn run_aggregator_server() -> JoinHandle<CrateResult<()>> {
-    tokio::spawn(async {
+pub async fn run_aggregator_server() -> CrateResult<()> {
+    let server_state = Arc::new(Mutex::new(ServerState::new()?));
+    let websocket_server = spawn_websocket_server(server_state.clone());
+    let block_producer = spawn_block_producer(server_state.clone());
+
+    // Combine the two tasks into one
+    // This will allow us to return an error if either of the tasks fail
+    let (websocket_result, block_producer_result) =
+        tokio::try_join!(websocket_server, block_producer)?;
+
+    if let Err(e) = websocket_result {
+        error!("Websocket server error: {}", e);
+    }
+
+    if let Err(e) = block_producer_result {
+        error!("Block producer error: {}", e);
+    }
+
+    Ok(())
+}
+
+pub fn spawn_websocket_server(
+    server_state: Arc<Mutex<ServerState>>,
+) -> JoinHandle<CrateResult<()>> {
+    tokio::spawn(async move {
         let addr = format!("127.0.0.1:{}", WEBSOCKET_PORT);
         let listener = TcpListener::bind(&addr).await?;
         info!("Listening on: {}", addr);
-
-        let server_state = Arc::new(Mutex::new(ServerState::new()?));
 
         loop {
             let listener_value = listener.accept().await;
@@ -46,27 +65,32 @@ pub fn run_aggregator_server() -> JoinHandle<CrateResult<()>> {
     })
 }
 
-fn block_producer_task(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<CrateResult<()>> {
+fn spawn_block_producer(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<CrateResult<()>> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
             let mut server_state = server_state.lock().await;
 
-            // if server_state.aggregator.tx_hash_to_metadata.len() == 0
-            //     || server_state.aggregator.state != AggregatorState::Open
-            // {
-            //     continue;
-            // }
+            // Start collecting signatures, only if there are transactions
+            // The method returns None if there are no transactions
+            match server_state.start_collecing_signatures().await {
+                Ok(value) => {
+                    if value.is_none() {
+                        continue;
+                    }
+                }
+                Err(e) => {
+                    error!("Error collecting signatures: {}", e);
 
-            info!("Collecting signatures");
-
-            if let Err(e) = server_state.start_collecing_signatures().await {
-                error!("Error collecting signatures: {}", e);
+                    continue;
+                }
             }
 
             // Wait for clients to send signatures
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+
+            server_state.finalise().await;
         }
     })
 }
