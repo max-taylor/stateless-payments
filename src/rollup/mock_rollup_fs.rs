@@ -36,7 +36,7 @@ impl RollupState {
 //
 // The state inside this class is intentionally empty, this prevents any misuse where we modify the
 // memory
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MockRollupFS {}
 
 impl MockRollupFS {

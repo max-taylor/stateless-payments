@@ -82,7 +82,7 @@ impl TransferBlock {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionProof {
     pub proof_hashes: Vec<U8_32>,
     pub root: U8_32,

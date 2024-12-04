@@ -2,7 +2,7 @@ use serde::{ser::Error, Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::types::{
-    common::{BlsPublicKey, BlsSignature, TransferBlock, U8_32},
+    common::{BalanceProof, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock},
     transaction::TransactionBatch,
 };
 
@@ -13,10 +13,12 @@ pub enum WsMessage {
     CAddConnection(BlsPublicKey),
     CSendTransactionBatch(TransactionBatch),
     CSendTransactionBatchSignature(BlsPublicKey, BlsSignature),
+    CSendBatchToReceivers(TransactionProof, BalanceProof),
 
     // Messages prefixed with S are sent by the server
-    SSendTransactionInclusionProof(U8_32, BlsPublicKey, BlsSignature),
+    SSendTransactionInclusionProof(TransactionProof),
     SFinalised(TransferBlock),
+    SReceiveTransaction(TransactionProof, BalanceProof),
 }
 
 impl From<WsMessage> for Message {

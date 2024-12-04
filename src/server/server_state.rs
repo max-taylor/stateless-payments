@@ -8,9 +8,9 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use crate::{
     aggregator::Aggregator,
     errors::CrateResult,
-    rollup::mock_rollup_fs::MockRollupFS,
+    rollup::{mock_rollup_fs::MockRollupFS, traits::RollupStateTrait},
     types::{
-        common::{BlsPublicKey, BlsSignature},
+        common::{BalanceProof, BlsPublicKey, BlsSignature, TransactionProof},
         public_key::BlsPublicKeyWrapper,
         transaction::TransactionBatch,
     },
@@ -60,23 +60,30 @@ impl ServerState {
         // Validates that there are transactions to collect signatures for
         self.aggregator.start_collecting_signatures()?;
 
-        // TODO: Send inclusion proofs to all the clients
-
         info!("Starting to collect signatures");
         for (connection, _) in self.connections_with_tx.iter() {
             match self.connections.get_mut(connection) {
-                // TODO: Needs to send the inclusion proof to the user
                 Some(connection) => {
-                    // if let Err(e) = connection
-                    //     .ws_send
-                    //     .send(WsMessage::SStartCollectingSignatures.into())
-                    //     .await
-                    // {
-                    //     error!(
-                    //         "Failed to send start collecting signatures message: {:?}",
-                    //         e
-                    //     );
-                    // }
+                    if let Ok(proof) = self
+                        .aggregator
+                        .generate_proof_for_pubkey(&connection.public_key)
+                    {
+                        if let Err(e) = connection
+                            .ws_send
+                            .send(WsMessage::SSendTransactionInclusionProof(proof).into())
+                            .await
+                        {
+                            error!(
+                                "Failed to send start collecting signatures message: {:?}",
+                                e
+                            );
+                        }
+                    } else {
+                        error!(
+                            "Failed to generate inclusion proof for public key: {:?}",
+                            connection.public_key
+                        );
+                    }
                 }
                 None => {
                     warn!("Connection not found for public key: {:?}", connection);
@@ -88,6 +95,11 @@ impl ServerState {
     }
 
     pub fn add_batch(&mut self, batch: &TransactionBatch) -> CrateResult<()> {
+        info!(
+            "Received transaction batch from: {:?}",
+            serde_json::to_string(&batch.from)?,
+        );
+
         self.aggregator.add_batch(batch)?;
 
         self.connections_with_tx
@@ -101,6 +113,11 @@ impl ServerState {
         public_key: &BlsPublicKey,
         signature: &BlsSignature,
     ) -> CrateResult<()> {
+        info!(
+            "Received transaction batch signature from: {:?}",
+            serde_json::to_string(&public_key)?,
+        );
+
         // This checks for the existence of the transaction and public key
         self.aggregator.add_signature(public_key, signature)?;
 
@@ -110,29 +127,59 @@ impl ServerState {
         Ok(())
     }
 
-    pub async fn finalise(&mut self) {
+    pub async fn send_batch_to_receivers(
+        &mut self,
+        proof: &TransactionProof,
+        balance_proof: &BalanceProof,
+    ) -> CrateResult<()> {
+        info!("Sending transaction to receiver");
+
+        for transaction in proof.batch.transactions.iter() {
+            let connection = self.connections.get_mut(&transaction.to.into());
+            if connection.is_none() {
+                warn!("Connection not found for public key: {:?}", transaction.to);
+                continue;
+            }
+            let connection = connection.unwrap();
+
+            if let Err(e) = connection
+                .ws_send
+                .send(WsMessage::SReceiveTransaction(proof.clone(), balance_proof.clone()).into())
+                .await
+            {
+                // Don't propogate again so we can continue to send to other connections
+                error!("Failed to send transaction to receiver: {:?}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn finalise(&mut self) -> CrateResult<()> {
         info!("Finalising aggregator");
 
         // Finalise and message all the connections
         // aggregator.finalise does a variety of checks to ensure the aggregator is in the correct state
-        match self.aggregator.finalise() {
-            Ok(transfer_block) => {
-                for connection in self.connections.values_mut() {
-                    if let Err(e) = connection
-                        .ws_send
-                        .send(WsMessage::SFinalised(transfer_block.clone()).into())
-                        .await
-                    {
-                        error!("Failed to send finalise message: {:?}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Error finalising aggregator: {}", e);
+        let transfer_block = self.aggregator.finalise()?;
+
+        // TODO: Inscription to L1 should be here
+        self.rollup_state
+            .add_transfer_block(transfer_block.clone())?;
+
+        for connection in self.connections.values_mut() {
+            if let Err(e) = connection
+                .ws_send
+                .send(WsMessage::SFinalised(transfer_block.clone()).into())
+                .await
+            {
+                // Don't propogate errors here, because we want to continue to send to other connections
+                error!("Failed to send finalise message: {:?}", e);
             }
         }
 
         // Create a new aggregator now we have finalised
         self.aggregator = Aggregator::new();
+
+        Ok(())
     }
 }

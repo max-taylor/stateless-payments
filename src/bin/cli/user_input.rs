@@ -27,56 +27,17 @@ pub fn spawn_user_input_handler(client: Arc<Mutex<Client>>) -> JoinHandle<CrateR
         stdout.flush().await?;
 
         while let Ok(Some(line)) = reader.next_line().await {
-            let command: CrateResult<Command> = line.trim().try_into();
-
-            if let Err(e) = command {
-                stdout
-                    .write_all(format!("Invalid command: {}\n", e).as_bytes())
-                    .await?;
-            } else {
-                match command.unwrap() {
-                    Command::AppendTransactionToBatch(to, amount) => {
-                        match client
-                            .lock()
-                            .await
-                            .wallet
-                            .append_transaction_to_batch(to, amount)
-                        {
-                            Ok(_) => {
-                                stdout.write_all(b"Transaction appended to batch\n").await?;
-                            }
-                            Err(e) => {
-                                stdout
-                                    .write_all(format!("Error: {}\n", e).as_bytes())
-                                    .await?;
-                            }
-                        }
-                    }
-                    Command::SendBatchToServer => {
-                        match client.lock().await.send_transaction_batch().await {
-                            Ok(_) => {
-                                println!("Batch sent to server");
-                            }
-                            Err(e) => {
-                                stdout
-                                    .write_all(format!("Error: {}\n", e).as_bytes())
-                                    .await?;
-                            }
-                        }
-                    }
-                    Command::Exit => {
-                        info!("Exiting CLI");
-                        break;
-                    }
-                    Command::PrintBalance => {
-                        stdout
-                            .write_all(
-                                format!("Balance: {}\n", client.lock().await.wallet.balance)
-                                    .as_bytes(),
-                            )
-                            .await?;
-                    }
+            match handle_new_line(client.clone(), &line).await {
+                Ok(Command::Exit) => {
+                    info!("Exiting CLI");
+                    break;
                 }
+                Err(e) => {
+                    stdout
+                        .write_all(format!("Error: {}\n", e).as_bytes())
+                        .await?;
+                }
+                _ => {}
             }
 
             stdout.write_all(b"> ").await?;
@@ -85,4 +46,29 @@ pub fn spawn_user_input_handler(client: Arc<Mutex<Client>>) -> JoinHandle<CrateR
 
         Err(anyhow!("User input handler exited"))
     })
+}
+
+async fn handle_new_line(client: Arc<Mutex<Client>>, line: &str) -> CrateResult<Command> {
+    let command: Command = line.trim().try_into()?;
+
+    match command {
+        Command::AppendTransactionToBatch(to, amount) => {
+            client
+                .lock()
+                .await
+                .wallet
+                .append_transaction_to_batch(to, amount)?;
+
+            ()
+        }
+        Command::SendBatchToServer => client.lock().await.send_transaction_batch().await?,
+        Command::PrintBalance => {
+            println!("Balance: {}", client.lock().await.wallet.balance);
+        }
+        _ => {
+            return Err(anyhow!("Invalid command"));
+        }
+    }
+
+    Ok(command)
 }

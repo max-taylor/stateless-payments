@@ -3,16 +3,17 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use cli::user_input::spawn_user_input_handler;
 use futures_util::{stream::SplitStream, StreamExt};
+use log::error;
 use stateless_bitcoin_l2::{
     client::client::Client,
     constants::WEBSOCKET_PORT,
     errors::CrateResult,
-    rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
+    rollup::mock_rollup_fs::MockRollupFS,
     server::{utils::parse_ws_message, ws_message::WsMessage},
     wallet::wallet::Wallet,
 };
 use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 mod cli;
 
@@ -20,17 +21,17 @@ mod cli;
 async fn main() -> CrateResult<()> {
     env_logger::init();
 
-    let mut rollup_state = MockRollupFS::new()?;
+    let rollup_state = MockRollupFS::new()?;
     let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", WEBSOCKET_PORT)).await?;
     let (ws_send, ws_receive) = socket.split();
 
-    let client = Arc::new(Mutex::new(Client::new(Wallet::new(), ws_send).await?));
+    let client = Arc::new(Mutex::new(
+        Client::new(Wallet::new(), rollup_state, ws_send).await?,
+    ));
 
     {
         let mut client = client.lock().await;
-        rollup_state.add_deposit(client.wallet.public_key.clone(), 100)?;
-
-        client.wallet.sync_rollup_state(&rollup_state)?;
+        client.add_mock_deposit(100)?;
 
         println!("Welcome to the L2 wallet CLI");
 
@@ -66,18 +67,43 @@ fn spawn_ws_receive_handler(
     tokio::spawn(async move {
         loop {
             if let Some(msg) = ws_receive.next().await {
-                let ws_message = parse_ws_message(msg?)?;
-
-                // match ws_message {
-                //     WsMessage::SStartCollectingSignatures => {
-                //         let mut client = client.lock().await;
-                //         client.send_transaction_batch().await?;
-                //     }
-                //     _ => {
-                //         return Err(anyhow!("Invalid message type"));
-                //     }
-                // }
+                if let Err(e) = handle_ws_message(client.clone(), msg).await {
+                    error!("Error handling message: {:?}", e);
+                }
             }
         }
     })
+}
+
+async fn handle_ws_message(
+    client: Arc<Mutex<Client>>,
+    msg: Result<Message, tokio_tungstenite::tungstenite::Error>,
+) -> CrateResult<()> {
+    let ws_message = parse_ws_message(msg?)?;
+
+    match ws_message {
+        WsMessage::SSendTransactionInclusionProof(proof) => {
+            client
+                .lock()
+                .await
+                .validate_sign_proof_send_signature(&proof)
+                .await?;
+        }
+        WsMessage::SFinalised(block) => {
+            client
+                .lock()
+                .await
+                .finalise_batch(block.merkle_root)
+                .await?
+        }
+        WsMessage::SReceiveTransaction(proof, balance_proof) => client
+            .lock()
+            .await
+            .add_receiving_transaction(&proof, &balance_proof)?,
+        _ => {
+            return Err(anyhow!("Invalid message type"));
+        }
+    }
+
+    Ok(())
 }

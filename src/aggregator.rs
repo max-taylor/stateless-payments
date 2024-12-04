@@ -102,17 +102,17 @@ impl Aggregator {
         self.merkle_tree.root().ok_or(anyhow!("No transactions"))
     }
 
-    pub fn generate_proof_for_batch(
+    pub fn generate_proof_for_pubkey(
         &self,
-        batch: &TransactionBatch,
+        public_key: &BlsPublicKey,
     ) -> CrateResult<TransactionProof> {
         self.check_aggregator_state(AggregatorState::CollectSignatures)?;
 
-        let public_key: BlsPublicKeyWrapper = batch.from.into();
+        let public_key: BlsPublicKeyWrapper = public_key.into();
 
-        let TxMetadata { index, .. } = self.tx_hash_to_metadata.get(&public_key).ok_or(anyhow!(
-            "Transaction not found, when generating proof for batch"
-        ))?;
+        let TxMetadata { index, batch, .. } = self.tx_hash_to_metadata.get(&public_key).ok_or(
+            anyhow!("Transaction not found, when generating proof for batch"),
+        )?;
 
         let proof = self.merkle_tree.proof(&[*index]);
 
@@ -238,7 +238,9 @@ mod tests {
         aggregator.start_collecting_signatures()?;
 
         for transaction in batches.iter() {
-            let merkle_tree_proof = aggregator.generate_proof_for_batch(&transaction).unwrap();
+            let merkle_tree_proof = aggregator
+                .generate_proof_for_pubkey(&transaction.from)
+                .unwrap();
 
             let verify_result = merkle_tree_proof.verify();
 
@@ -256,9 +258,9 @@ mod tests {
         aggregator.start_collecting_signatures()?;
 
         for (transaction, account) in batches.iter().zip(accounts.iter_mut()) {
-            let merkle_tree_proof = aggregator.generate_proof_for_batch(&transaction)?;
+            let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&transaction.from)?;
 
-            let signature = account.validate_and_sign_batch(&merkle_tree_proof)?;
+            let signature = account.validate_and_sign_proof(&merkle_tree_proof)?;
 
             aggregator.add_signature(&account.public_key, &signature)?;
         }

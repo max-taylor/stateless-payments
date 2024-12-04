@@ -75,11 +75,9 @@ fn test_flow() -> CrateResult<()> {
                 continue;
             }
 
-            let batch = account.transaction_batch.clone();
+            let transaction_proof = aggregator.generate_proof_for_pubkey(&account.public_key)?;
 
-            let transaction_proof = aggregator.generate_proof_for_batch(&batch)?;
-
-            let signature = account.validate_and_sign_batch(&transaction_proof)?;
+            let signature = account.validate_and_sign_proof(&transaction_proof)?;
 
             aggregator.add_signature(&account.public_key, &signature)?;
 

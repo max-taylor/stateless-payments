@@ -86,25 +86,18 @@ async fn handle_loop(
     let ws_message = parse_ws_message(msg?)?;
 
     match ws_message {
-        WsMessage::CAddConnection(public_key) => {
-            error!(
-                "Received public key after initial message: {:?}",
-                public_key
-            );
-        }
         WsMessage::CSendTransactionBatch(transaction_batch) => {
-            info!(
-                "Received transaction batch from: {:?}",
-                serde_json::to_string(&transaction_batch.from)?,
-            );
             server_state.lock().await.add_batch(&transaction_batch)?;
         }
         WsMessage::CSendTransactionBatchSignature(from, signature) => {
-            info!(
-                "Received transaction batch signature from: {:?}",
-                serde_json::to_string(&from)?,
-            );
             server_state.lock().await.add_signature(&from, &signature)?;
+        }
+        WsMessage::CSendBatchToReceivers(proof, balance_proof) => {
+            server_state
+                .lock()
+                .await
+                .send_batch_to_receivers(&proof, &balance_proof)
+                .await?;
         }
         _ => {
             return Err(anyhow!("Invalid message type"));

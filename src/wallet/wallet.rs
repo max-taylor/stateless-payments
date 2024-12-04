@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
+use log::info;
 
 use crate::{
     errors::CrateResult,
@@ -68,6 +69,8 @@ impl Wallet {
         to: BlsPublicKey,
         amount: u64,
     ) -> CrateResult<&TransactionBatch> {
+        info!("Appending transaction to batch");
+
         if self.batch_is_pending {
             return Err(anyhow!("Batch is currently pending"));
         }
@@ -174,7 +177,7 @@ impl Wallet {
     //
     // ! You could validate the inclusion by using the RollupContractTrait, but doesn't seem
     // necessary
-    pub fn validate_and_sign_batch(
+    pub fn validate_and_sign_proof(
         &mut self,
         transaction_proof: &TransactionProof,
     ) -> CrateResult<BlsSignature> {
@@ -204,6 +207,7 @@ impl Wallet {
             (transaction_proof.root, self.public_key.into()),
             transaction_proof.clone(),
         );
+        // TODO: This should be moved to an uncomfirmed state
         self.transaction_batch = TransactionBatch::new(self.public_key);
         self.batch_is_pending = false;
 
@@ -315,9 +319,9 @@ mod tests {
         aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
 
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
 
-        let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
+        let signature = client.validate_and_sign_proof(&merkle_tree_proof)?;
 
         assert_eq!(client.balance, 0);
         assert_eq!(client.transaction_batch.transactions.len(), 0);
@@ -358,9 +362,9 @@ mod tests {
 
         aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
 
-        let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
+        let signature = client.validate_and_sign_proof(&merkle_tree_proof)?;
 
         aggregator.add_signature(&client.public_key, &signature)?;
 
@@ -394,8 +398,8 @@ mod tests {
 
         aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
-        let signature = sender.validate_and_sign_batch(&merkle_tree_proof)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
+        let signature = sender.validate_and_sign_proof(&merkle_tree_proof)?;
 
         aggregator.add_signature(&sender.public_key, &signature)?;
 
@@ -448,8 +452,8 @@ mod tests {
 
         aggregator.add_batch(&batch)?;
         aggregator.start_collecting_signatures()?;
-        let merkle_tree_proof = aggregator.generate_proof_for_batch(&batch)?;
-        let signature = client.validate_and_sign_batch(&merkle_tree_proof)?;
+        let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
+        let signature = client.validate_and_sign_proof(&merkle_tree_proof)?;
 
         aggregator.add_signature(&client.public_key, &signature)?;
 
