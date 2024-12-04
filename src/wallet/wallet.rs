@@ -216,7 +216,7 @@ mod tests {
     use crate::{
         aggregator::Aggregator,
         errors::{CrateError, CrateResult},
-        rollup::rollup_state::MockRollupState,
+        rollup::rollup_state::{MockRollupState, MockRollupStateTrait},
     };
 
     use super::Wallet;

@@ -50,6 +50,14 @@ pub trait RollupStateTrait {
     }
 }
 
+pub trait MockRollupStateTrait: RollupStateTrait {
+    fn add_transfer_block(&mut self, transfer_block: TransferBlock);
+
+    fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64);
+
+    fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()>;
+}
+
 pub struct MockRollupState {
     pub withdraw_totals: AccountTotals,
     pub deposit_totals: AccountTotals,
@@ -64,19 +72,21 @@ impl MockRollupState {
             transfer_blocks: vec![],
         }
     }
+}
 
-    pub fn add_transfer_block(&mut self, transfer_block: TransferBlock) {
+impl MockRollupStateTrait for MockRollupState {
+    fn add_transfer_block(&mut self, transfer_block: TransferBlock) {
         self.transfer_blocks.push(transfer_block);
     }
 
-    pub fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) {
+    fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) {
         self.deposit_totals
             .entry(pubkey.into())
             .and_modify(|e| *e += amount)
             .or_insert(amount);
     }
 
-    pub fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
+    fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
         let deposit_amount = self.get_account_deposit_amount(&pubkey)?;
         let withdraw_amount = self.get_account_withdraw_amount(&pubkey)?;
 

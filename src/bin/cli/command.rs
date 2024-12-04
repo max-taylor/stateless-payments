@@ -19,7 +19,7 @@ impl TryFrom<&str> for Command {
         }
 
         match parts[0] {
-            "send_tx" => {
+            "append_tx" => {
                 if parts.len() != 3 {
                     return Err(anyhow!(format!(
                         "Invalid number of arguments for send_transaction, expected 3 got {}",
@@ -36,6 +36,7 @@ impl TryFrom<&str> for Command {
 
                 Ok(Command::AppendTransactionToBatch(public_key, amount))
             }
+            "send_batch" => Ok(Command::SendBatchToServer),
             "exit" => Ok(Command::Exit),
             _ => Err(anyhow!("Invalid command")),
         }

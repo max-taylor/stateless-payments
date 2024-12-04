@@ -203,7 +203,7 @@ mod tests {
     use crate::{
         aggregator::{Aggregator, AggregatorState},
         errors::CrateResult,
-        rollup::rollup_state::MockRollupState,
+        rollup::rollup_state::{MockRollupState, MockRollupStateTrait},
         types::transaction::TransactionBatch,
         wallet::wallet::Wallet,
     };
