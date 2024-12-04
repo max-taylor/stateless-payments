@@ -940,6 +940,7 @@ dependencies = [
  "indexmap",
  "log",
  "rand",
+ "regex",
  "rs_merkle",
  "serde",
  "serde_json",

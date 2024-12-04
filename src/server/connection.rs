@@ -44,7 +44,8 @@ pub async fn handle_connection(
         .await
         .ok_or(anyhow!("Must send public key as first message"))?;
 
-    let public_key_cache: BlsPublicKey;
+    // Declare the guard here so that it is dropped when the function returns, which will remove the connection
+    let _guard: ConnectionGuard;
 
     if let WsMessage::CAddConnection(public_key) = parse_ws_message(msg?)? {
         info!("Received public key, adding connection: {:?}", public_key);
@@ -53,19 +54,15 @@ pub async fn handle_connection(
             public_key: public_key.clone(),
             ws_send: ws_sender,
         };
+        _guard = ConnectionGuard {
+            public_key: public_key.clone(),
+            server_state: server_state.clone(),
+        };
 
-        server_state.add_connection(connection).await;
-
-        public_key_cache = public_key.clone();
+        let id = server_state.add_connection(connection).await;
     } else {
         return Err(anyhow!("Must send public key as first message"));
     }
-
-    // Declare the guard here so that it is dropped when the function returns, which will remove the connection
-    let _guard = ConnectionGuard {
-        public_key: public_key_cache,
-        server_state: server_state.clone(),
-    };
 
     loop {
         if let Some(msg) = ws_receiver.next().await {
@@ -85,6 +82,10 @@ pub async fn handle_connection(
                 WsMessage::CSendTransactionBatchSignature(tx_hash, from, signature) => {
                     let mut aggregator = server_state.aggregator.lock().await;
                     aggregator.add_signature(&tx_hash, &from, &signature)?;
+                }
+
+                _ => {
+                    error!("Received unknown message: {:?}", ws_message);
                 }
             }
         }

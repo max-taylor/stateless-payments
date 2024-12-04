@@ -4,6 +4,7 @@ use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::{errors::CrateResult, server::ws_message::WsMessage, wallet::wallet::Wallet};
 
+#[derive(Debug)]
 pub struct Client {
     pub wallet: Wallet,
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,

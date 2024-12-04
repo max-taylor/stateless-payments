@@ -15,6 +15,7 @@ use crate::{
 
 use super::utils::{calculate_balances_and_validate_balance_proof, merge_balance_proofs};
 
+#[derive(Debug)]
 pub struct Wallet {
     pub public_key: BlsPublicKey,
     private_key: BlsSecretKey,
