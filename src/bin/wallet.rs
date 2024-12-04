@@ -1,6 +1,10 @@
 use log::info;
 use stateless_bitcoin_l2::{
-    client::client::Client, constants::WEBSOCKET_PORT, errors::CrateResult, wallet::wallet::Wallet,
+    client::client::Client,
+    constants::WEBSOCKET_PORT,
+    errors::CrateResult,
+    rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
+    wallet::wallet::Wallet,
 };
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio_tungstenite::connect_async;
@@ -13,13 +17,19 @@ mod cli;
 async fn main() -> CrateResult<()> {
     env_logger::init();
 
+    let mut rollup_state = MockRollupFS::new()?;
     let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", WEBSOCKET_PORT)).await?;
 
-    let client = Client::new(Wallet::new(), socket).await?;
+    let mut client = Client::new(Wallet::new(), socket).await?;
 
+    rollup_state.add_deposit(client.wallet.public_key.clone(), 100)?;
+
+    client.wallet.sync_rollup_state(&rollup_state)?;
+
+    println!("Welcome to the L2 wallet CLI");
     println!(
-        "Your PubKey: {:?}",
-        serde_json::to_string(&client.wallet.public_key)?
+        "Your public key is: {}",
+        serde_json::to_string(&client.wallet.public_key)?,
     );
 
     // Start tasks for user input and signal handling
@@ -71,22 +81,24 @@ async fn handle_user_input(mut client: Client) -> CrateResult<()> {
                         }
                     }
                 }
-                Command::SendBatchToServer => {
-                    match client.send_transaction_batch().await {
-                        Ok(batch) => {
-                            // let batch = serde_json::to_string(&batch)?;
-                            // client.send_batch(batch).await?;
-                        }
-                        Err(e) => {
-                            stdout
-                                .write_all(format!("Error: {}\n", e).as_bytes())
-                                .await?;
-                        }
+                Command::SendBatchToServer => match client.send_transaction_batch().await {
+                    Ok(_) => {
+                        println!("Batch sent to server");
                     }
-                }
+                    Err(e) => {
+                        stdout
+                            .write_all(format!("Error: {}\n", e).as_bytes())
+                            .await?;
+                    }
+                },
                 Command::Exit => {
                     info!("Exiting CLI");
                     break;
+                }
+                Command::PrintBalance => {
+                    stdout
+                        .write_all(format!("Balance: {}\n", client.wallet.balance).as_bytes())
+                        .await?;
                 }
             }
         }

@@ -2,8 +2,8 @@ use anyhow::anyhow;
 use futures_util::StreamExt;
 use log::*;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::net::TcpStream;
-use tokio_tungstenite::accept_async;
+use tokio::{net::TcpStream, sync::Mutex, task};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::{
     errors::CrateResult,
@@ -18,22 +18,25 @@ use super::ws_message::WsMessage;
 
 struct ConnectionGuard {
     public_key: BlsPublicKey,
-    server_state: Arc<ServerState>,
+    server_state: Arc<Mutex<ServerState>>,
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        info!("Removing connection: {:?}", self.public_key);
-
-        // Remove the connection from the server state, ignoring any errors
-        let _ = self.server_state.remove_connection(&self.public_key);
+        let server_state = self.server_state.clone();
+        let public_key = self.public_key.clone();
+        task::spawn(async move {
+            // Perform the cleanup asynchronously
+            let mut state = server_state.lock().await;
+            state.remove_connection(&public_key);
+        });
     }
 }
 
 pub async fn handle_connection(
     peer: SocketAddr,
     stream: TcpStream,
-    server_state: Arc<ServerState>,
+    server_state: Arc<Mutex<ServerState>>,
 ) -> CrateResult<()> {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
@@ -59,35 +62,60 @@ pub async fn handle_connection(
             server_state: server_state.clone(),
         };
 
-        let id = server_state.add_connection(connection).await;
+        server_state.lock().await.add_connection(connection);
     } else {
         return Err(anyhow!("Must send public key as first message"));
     }
 
     loop {
         if let Some(msg) = ws_receiver.next().await {
-            let ws_message = parse_ws_message(msg?)?;
-
-            match ws_message {
-                WsMessage::CAddConnection(public_key) => {
-                    error!(
-                        "Received public key after initial message: {:?}",
-                        public_key
-                    );
-                }
-                WsMessage::CSendTransactionBatch(transaction_batch) => {
-                    let mut aggregator = server_state.aggregator.lock().await;
-                    aggregator.add_batch(&transaction_batch.tx_hash(), &transaction_batch.from)?;
-                }
-                WsMessage::CSendTransactionBatchSignature(tx_hash, from, signature) => {
-                    let mut aggregator = server_state.aggregator.lock().await;
-                    aggregator.add_signature(&tx_hash, &from, &signature)?;
-                }
-
-                _ => {
-                    error!("Received unknown message: {:?}", ws_message);
-                }
+            // Intentionally ignore errors here, as we don't want to drop the connection
+            if let Err(e) = handle_loop(msg, server_state.clone()).await {
+                error!("Error handling message: {:?}", e);
             }
+        } else {
+            return Err(tokio_tungstenite::tungstenite::Error::ConnectionClosed.into());
         }
     }
+}
+
+async fn handle_loop(
+    msg: Result<Message, tokio_tungstenite::tungstenite::Error>,
+    server_state: Arc<Mutex<ServerState>>,
+) -> CrateResult<()> {
+    let ws_message = parse_ws_message(msg?)?;
+
+    match ws_message {
+        WsMessage::CAddConnection(public_key) => {
+            error!(
+                "Received public key after initial message: {:?}",
+                public_key
+            );
+        }
+        WsMessage::CSendTransactionBatch(transaction_batch) => {
+            info!(
+                "Received transaction batch from: {:?}",
+                serde_json::to_string(&transaction_batch.from)?,
+            );
+            server_state
+                .lock()
+                .await
+                .add_batch(&transaction_batch.tx_hash(), &transaction_batch.from);
+        }
+        WsMessage::CSendTransactionBatchSignature(tx_hash, from, signature) => {
+            info!(
+                "Received transaction batch signature from: {:?}",
+                serde_json::to_string(&from)?,
+            );
+            server_state
+                .lock()
+                .await
+                .add_signature(&tx_hash, &from, &signature)?;
+        }
+        _ => {
+            return Err(anyhow!("Invalid message type"));
+        }
+    }
+
+    Ok(())
 }

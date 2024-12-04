@@ -216,7 +216,10 @@ mod tests {
     use crate::{
         aggregator::Aggregator,
         errors::{CrateError, CrateResult},
-        rollup::{mock_rollup_memory::MockRollupMemory, traits::MockRollupStateTrait},
+        rollup::{
+            mock_rollup_memory::MockRollupMemory,
+            traits::{MockRollupStateTrait, RollupStateTrait},
+        },
     };
 
     use super::Wallet;
@@ -224,7 +227,7 @@ mod tests {
     fn setup(initial_deposit: u64) -> CrateResult<(Wallet, MockRollupMemory)> {
         let mut client = Wallet::new();
         let mut rollup_state = MockRollupMemory::new();
-        rollup_state.add_deposit(client.public_key, initial_deposit);
+        rollup_state.add_deposit(client.public_key, initial_deposit)?;
 
         client.sync_rollup_state(&rollup_state).unwrap();
 

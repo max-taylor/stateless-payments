@@ -7,6 +7,8 @@ use crate::{
 };
 
 pub trait RollupStateTrait {
+    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()>;
+
     fn get_withdraw_totals(&self) -> CrateResult<AccountTotals>;
 
     fn get_account_withdraw_amount(&self, pubkey: &BlsPublicKey) -> CrateResult<u64> {
@@ -49,8 +51,6 @@ pub trait RollupStateTrait {
 }
 
 pub trait MockRollupStateTrait: RollupStateTrait {
-    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()>;
-
     fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()>;
 
     fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()>;

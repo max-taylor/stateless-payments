@@ -1,14 +1,21 @@
 use std::collections::HashMap;
 
-use futures_util::stream::SplitSink;
-use tokio::{net::TcpStream, sync::Mutex};
+use futures_util::{stream::SplitSink, SinkExt};
+use log::{error, warn};
+use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
 use crate::{
     aggregator::Aggregator,
     errors::CrateResult,
-    types::{common::BlsPublicKey, public_key::BlsPublicKeyWrapper},
+    rollup::mock_rollup_fs::MockRollupFS,
+    types::{
+        common::{BlsPublicKey, BlsSignature, U8_32},
+        public_key::BlsPublicKeyWrapper,
+    },
 };
+
+use super::ws_message::WsMessage;
 
 pub struct Connection {
     pub public_key: BlsPublicKey,
@@ -17,60 +24,109 @@ pub struct Connection {
 }
 
 pub struct ServerState {
-    connections: Mutex<HashMap<BlsPublicKeyWrapper, Connection>>,
-    pub aggregator: Mutex<Aggregator>,
+    connections: HashMap<BlsPublicKeyWrapper, Connection>,
+    // Indexes which connections have transactions, the value is initially false when they send a transaction and then set to true when they send a signature
+    connections_with_tx: HashMap<BlsPublicKeyWrapper, bool>,
+    aggregator: Aggregator,
+    rollup_state: MockRollupFS,
 }
 
 impl ServerState {
-    pub fn new() -> ServerState {
-        ServerState {
-            connections: Mutex::new(HashMap::new()),
-            aggregator: Mutex::new(Aggregator::new()),
-        }
+    pub fn new() -> CrateResult<ServerState> {
+        Ok(ServerState {
+            connections: HashMap::new(),
+            aggregator: Aggregator::new(),
+            connections_with_tx: HashMap::new(),
+            rollup_state: MockRollupFS::new()?,
+        })
     }
 
-    pub async fn add_connection(&self, connection: Connection) -> CrateResult<()> {
+    pub fn add_connection(&mut self, connection: Connection) {
         self.connections
-            .lock()
-            .await
             .insert(connection.public_key.clone().into(), connection);
+    }
+
+    pub fn remove_connection(&mut self, public_key: &BlsPublicKey) {
+        self.connections.remove(&public_key.into());
+    }
+
+    pub async fn start_collecing_signatures(&mut self) -> CrateResult<()> {
+        self.aggregator.start_collecting_signatures()?;
+
+        for (connection, _) in self.connections_with_tx.iter() {
+            match self.connections.get_mut(connection) {
+                Some(connection) => {
+                    if let Err(e) = connection
+                        .ws_send
+                        .send(WsMessage::SStartCollectingSignatures.into())
+                        .await
+                    {
+                        error!(
+                            "Failed to send start collecting signatures message: {:?}",
+                            e
+                        );
+                    }
+                }
+                None => {
+                    warn!("Connection not found for public key: {:?}", connection);
+                }
+            }
+        }
 
         Ok(())
     }
 
-    // ! Commenting out for now
-    // pub async fn upsert_pubkey_to_id(&self, public_key: BlsPublicKey) -> CrateResult<u32> {
-    //     let mut pubkey_to_id = self.pubkey_to_id.lock().await;
-    //     let value = pubkey_to_id.get(&public_key.into());
-    //     let length: u32 = pubkey_to_id.len().try_into()?;
-    //
-    //     if value.is_none() {
-    //         pubkey_to_id.insert(public_key.clone().into(), length);
-    //
-    //         return Ok(length);
-    //     }
-    //
-    //     let value = value.ok_or(anyhow!("Error upserting pubkey to id"))?;
-    //
-    //     return Ok(*value);
-    // }
+    pub async fn add_batch(
+        &mut self,
+        tx_hash: &U8_32,
+        public_key: &BlsPublicKey,
+    ) -> CrateResult<()> {
+        self.aggregator.add_batch(tx_hash, public_key)?;
 
-    // pub async fn find_pubkey_to_id(&self, id: u32) -> CrateResult<BlsPublicKey> {
-    //     let pubkey_to_id = self.pubkey_to_id.lock().await;
-    //     let value = pubkey_to_id.iter().find(|(_, v)| **v == id);
-    //
-    //     let value = value.ok_or(anyhow!("Error finding pubkey to id"))?;
-    //
-    //     return Ok(value.0.clone().into());
-    // }
+        self.connections_with_tx
+            .insert(public_key.clone().into(), false);
 
-    pub async fn remove_connection(&self, public_key: &BlsPublicKey) {
-        self.connections.lock().await.remove(&public_key.into());
+        Ok(())
     }
-    //
-    // pub async fn test_send(&self, public_key: &BlsPublicKeyWrapper, message: Message) {
-    //     if let Some(connection) = self.connections.lock().await.get_mut(public_key) {
-    //         connection.ws_send.send(message).await.unwrap();
-    //     }
-    // }
+
+    pub fn add_signature(
+        &mut self,
+        tx_hash: &U8_32,
+        public_key: &BlsPublicKey,
+        signature: &BlsSignature,
+    ) -> CrateResult<()> {
+        // This checks for the existence of the transaction and public key
+        self.aggregator
+            .add_signature(tx_hash, public_key, signature)?;
+
+        self.connections_with_tx
+            .insert(public_key.clone().into(), true);
+
+        Ok(())
+    }
+
+    pub async fn finalise(&mut self) -> CrateResult<()> {
+        // Finalise and message all the connections
+        match self.aggregator.finalise() {
+            Ok(transfer_block) => {
+                for connection in self.connections.values_mut() {
+                    if let Err(e) = connection
+                        .ws_send
+                        .send(WsMessage::SFinalised(transfer_block.clone()).into())
+                        .await
+                    {
+                        error!("Failed to send finalise message: {:?}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Error finalising aggregator: {}", e);
+            }
+        }
+
+        // Create a new aggregator now we have finalised
+        self.aggregator = Aggregator::new();
+
+        Ok(())
+    }
 }

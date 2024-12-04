@@ -15,7 +15,7 @@ use crate::{
 use super::traits::{MockRollupStateTrait, RollupStateTrait};
 
 // This simply is just the struct that we will be writing to the file system
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct RollupState {
     withdraw_totals: AccountTotals,
     deposit_totals: AccountTotals,
@@ -49,13 +49,16 @@ impl MockRollupFS {
             .read(true)
             .write(true)
             .create(true)
-            .open("data/rollup_state.json")?;
+            .open("rollup_state.json")?;
 
         file.lock_exclusive()?;
 
         let state: RollupState = match from_reader(&file) {
             Ok(state) => state,
-            Err(_) => RollupState::new()?,
+            Err(e) => {
+                dbg!(e);
+                RollupState::new()?
+            }
         };
 
         file.unlock().expect("Unable to unlock file");
@@ -79,17 +82,9 @@ impl MockRollupFS {
 }
 
 impl MockRollupStateTrait for MockRollupFS {
-    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
-        // Sync to FS
-        let mut state = MockRollupFS::read_state_from_fs()?;
-        state.transfer_blocks.push(transfer_block);
-        MockRollupFS::write_state_to_fs(state)?;
-
-        Ok(())
-    }
-
     fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
         let mut state = MockRollupFS::read_state_from_fs()?;
+
         state
             .deposit_totals
             .entry(pubkey.into())
@@ -122,6 +117,15 @@ impl MockRollupStateTrait for MockRollupFS {
 }
 
 impl RollupStateTrait for MockRollupFS {
+    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+        // Sync to FS
+        let mut state = MockRollupFS::read_state_from_fs()?;
+        state.transfer_blocks.push(transfer_block);
+        MockRollupFS::write_state_to_fs(state)?;
+
+        Ok(())
+    }
+
     fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
         // Reload from FS
         let state = MockRollupFS::read_state_from_fs()?;

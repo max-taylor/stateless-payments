@@ -7,33 +7,10 @@ use super::common::BlsPublicKey;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimpleTransaction {
-    #[serde(
-        serialize_with = "serialize_public_key",
-        deserialize_with = "deserialize_public_key"
-    )]
     pub to: BlsPublicKey,
-    #[serde(
-        serialize_with = "serialize_public_key",
-        deserialize_with = "deserialize_public_key"
-    )]
     pub from: BlsPublicKey,
     pub amount: u64,
     pub salt: U8_32,
-}
-
-pub fn serialize_public_key<S>(key: &BlsPublicKey, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_bytes(&key.to_string().as_bytes())
-}
-
-pub fn deserialize_public_key<'de, D>(deserializer: D) -> Result<BlsPublicKey, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes = Vec::deserialize(deserializer)?;
-    BlsPublicKey::try_from(&bytes).map_err(serde::de::Error::custom)
 }
 
 impl Into<U8_32> for SimpleTransaction {

@@ -2,18 +2,21 @@ use serde::{ser::Error, Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::types::{
-    common::{BlsPublicKey, BlsSignature, U8_32},
+    common::{BlsPublicKey, BlsSignature, TransferBlock, U8_32},
     transaction::TransactionBatch,
 };
 
 // The WsMessage enum is used to represent the different types of messages that can be sent over the WebSocket connection.
-// Messages prefixed with C are sent by the client
-// Messages prefixed with S are sent by the server
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WsMessage {
+    // Messages prefixed with C are sent by the client
     CAddConnection(BlsPublicKey),
     CSendTransactionBatch(TransactionBatch),
     CSendTransactionBatchSignature(U8_32, BlsPublicKey, BlsSignature),
+
+    // Messages prefixed with S are sent by the server
+    SStartCollectingSignatures,
+    SFinalised(TransferBlock),
 }
 
 impl From<WsMessage> for Message {

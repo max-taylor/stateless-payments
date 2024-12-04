@@ -1,11 +1,13 @@
 use log::*;
 use std::sync::Arc;
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::tungstenite::Error;
 
 use crate::{
+    aggregator::AggregatorState,
     constants::WEBSOCKET_PORT,
     errors::CrateResult,
+    rollup::mock_rollup_fs::MockRollupFS,
     server::{connection::handle_connection, server_state::ServerState},
 };
 
@@ -15,7 +17,7 @@ pub fn run_aggregator_server() -> JoinHandle<CrateResult<()>> {
         let listener = TcpListener::bind(&addr).await?;
         info!("Listening on: {}", addr);
 
-        let server_state = Arc::new(ServerState::new());
+        let server_state = Arc::new(Mutex::new(ServerState::new()?));
 
         loop {
             let listener_value = listener.accept().await;
@@ -40,6 +42,31 @@ pub fn run_aggregator_server() -> JoinHandle<CrateResult<()>> {
                     }
                 }
             });
+        }
+    })
+}
+
+fn block_producer_task(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<CrateResult<()>> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+
+            let mut server_state = server_state.lock().await;
+
+            // if server_state.aggregator.tx_hash_to_metadata.len() == 0
+            //     || server_state.aggregator.state != AggregatorState::Open
+            // {
+            //     continue;
+            // }
+
+            info!("Collecting signatures");
+
+            if let Err(e) = server_state.start_collecing_signatures().await {
+                error!("Error collecting signatures: {}", e);
+            }
+
+            // Wait for clients to send signatures
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
     })
 }

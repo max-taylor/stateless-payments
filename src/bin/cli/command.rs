@@ -5,6 +5,7 @@ use stateless_bitcoin_l2::types::common::BlsPublicKey;
 pub enum Command {
     AppendTransactionToBatch(BlsPublicKey, u64),
     SendBatchToServer,
+    PrintBalance,
     Exit,
 }
 
@@ -37,6 +38,7 @@ impl TryFrom<&str> for Command {
                 Ok(Command::AppendTransactionToBatch(public_key, amount))
             }
             "send_batch" => Ok(Command::SendBatchToServer),
+            "balance" => Ok(Command::PrintBalance),
             "exit" => Ok(Command::Exit),
             _ => Err(anyhow!("Invalid command")),
         }

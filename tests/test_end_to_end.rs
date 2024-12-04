@@ -1,7 +1,10 @@
 use stateless_bitcoin_l2::{
     aggregator::Aggregator,
     errors::CrateResult,
-    rollup::{mock_rollup_memory::MockRollupMemory, traits::MockRollupStateTrait},
+    rollup::{
+        mock_rollup_memory::MockRollupMemory,
+        traits::{MockRollupStateTrait, RollupStateTrait},
+    },
     types::common::{BalanceProof, TransactionProof},
     wallet::wallet::Wallet,
 };

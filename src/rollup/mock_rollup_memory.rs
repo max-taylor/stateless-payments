@@ -28,12 +28,6 @@ impl MockRollupMemory {
 }
 
 impl MockRollupStateTrait for MockRollupMemory {
-    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
-        self.transfer_blocks.push(transfer_block);
-
-        Ok(())
-    }
-
     fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
         self.deposit_totals
             .entry(pubkey.into())
@@ -61,6 +55,11 @@ impl MockRollupStateTrait for MockRollupMemory {
 }
 
 impl RollupStateTrait for MockRollupMemory {
+    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+        self.transfer_blocks.push(transfer_block);
+
+        Ok(())
+    }
     fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
         Ok(self.withdraw_totals.clone())
     }

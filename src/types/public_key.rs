@@ -9,8 +9,24 @@ use super::common::BlsPublicKey;
 
 // Unfortunately PublicKey does not implement the Hash trait
 // And in order to use it as a key in a HashMap we need to implement the Hash trait
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, Serialize)]
 pub struct BlsPublicKeyWrapper(BlsPublicKey);
+
+// The Deserializer for BlsPublicKey is pretty stupid and expects a &str instead of String, so have
+// to do ALL of the below to get around that uselessness
+impl<'de> Deserialize<'de> for BlsPublicKeyWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let formatted_string = format!("\"{}\"", s);
+
+        let key: BlsPublicKey =
+            serde_json::from_str(&formatted_string).map_err(serde::de::Error::custom)?;
+        Ok(BlsPublicKeyWrapper(key))
+    }
+}
 
 impl PartialEq for BlsPublicKeyWrapper {
     fn eq(&self, other: &Self) -> bool {
