@@ -1,3 +1,4 @@
+use blsful::inner_types::G1Projective;
 use blsful::{AggregateSignature, Bls12381G1Impl, BlsResult, PublicKey, SecretKey, Signature};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -22,10 +23,76 @@ pub type BlsSignature = Signature<BlsType>;
 pub type BlsSecretKey = SecretKey<BlsType>;
 pub type BlsAggregateSignature = AggregateSignature<BlsType>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct BlsAggregateSignatureWrapper(pub BlsAggregateSignature);
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct BlsSignatureWrapper(pub BlsSignature);
+
+// TODO: This requires reparing
+impl<'de> Deserialize<'de> for BlsAggregateSignatureWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let formatted_string = format!("\"{}\"", s);
+
+        let key: BlsAggregateSignature =
+            serde_json::from_str(&formatted_string).map_err(serde::de::Error::custom)?;
+        Ok(BlsAggregateSignatureWrapper(key))
+    }
+}
+
+impl Into<BlsAggregateSignature> for BlsAggregateSignatureWrapper {
+    fn into(self) -> BlsAggregateSignature {
+        self.0
+    }
+}
+
+impl From<BlsAggregateSignature> for BlsAggregateSignatureWrapper {
+    fn from(signature: BlsAggregateSignature) -> Self {
+        BlsAggregateSignatureWrapper(signature)
+    }
+}
+
+impl Into<BlsSignature> for BlsSignatureWrapper {
+    fn into(self) -> BlsSignature {
+        self.0
+    }
+}
+
+impl From<BlsSignature> for BlsSignatureWrapper {
+    fn from(signature: BlsSignature) -> Self {
+        BlsSignatureWrapper(signature)
+    }
+}
+
+impl<'de> Deserialize<'de> for BlsSignatureWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize the map
+        #[allow(non_snake_case)]
+        #[derive(Deserialize)]
+        struct MessageAugmentationWrapper {
+            MessageAugmentation: String,
+        }
+
+        let wrapper = MessageAugmentationWrapper::deserialize(deserializer)?;
+
+        // Parse the string into BlsSignature
+        let key: G1Projective =
+            serde_json::from_str(&format!("\"{}\"", wrapper.MessageAugmentation))
+                .map_err(serde::de::Error::custom)?;
+
+        Ok(BlsSignatureWrapper(BlsSignature::MessageAugmentation(key)))
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TransferBlockSignature {
-    Aggregated(BlsAggregateSignature, Vec<BlsPublicKeyWrapper>),
-    Individual(BlsSignature, BlsPublicKeyWrapper),
+    Aggregated(BlsAggregateSignatureWrapper, Vec<BlsPublicKeyWrapper>),
+    Individual(BlsSignatureWrapper, BlsPublicKeyWrapper),
 }
 
 impl TransferBlockSignature {
@@ -34,7 +101,7 @@ impl TransferBlockSignature {
             let public_key = values[0].0.clone();
             let signature = values[0].1.clone();
             Ok(TransferBlockSignature::Individual(
-                signature,
+                signature.into(),
                 public_key.into(),
             ))
         } else {
@@ -47,7 +114,7 @@ impl TransferBlockSignature {
                 values.iter().map(|(pk, _)| pk.clone().into()).collect();
 
             Ok(TransferBlockSignature::Aggregated(
-                aggregate_signature,
+                aggregate_signature.into(),
                 public_keys,
             ))
         }
@@ -70,10 +137,12 @@ impl TransferBlock {
                     .map(|pk| (pk.clone().into(), self.merkle_root))
                     .collect::<Vec<(BlsPublicKey, U8_32)>>();
 
-                sig.verify(&verify_message)
+                let aggregate_signature: BlsAggregateSignature = (*sig).into();
+                aggregate_signature.verify(&verify_message)
             }
             TransferBlockSignature::Individual(sig, public_key) => {
-                sig.verify(&(*public_key).into(), self.merkle_root)
+                let signature: BlsSignature = (*sig).into();
+                signature.verify(&(*public_key).into(), self.merkle_root)
             }
         }
     }

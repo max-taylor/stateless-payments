@@ -70,6 +70,7 @@ impl MockRollupFS {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open("rollup_state.json")?;
 
         file.lock_exclusive()?;
