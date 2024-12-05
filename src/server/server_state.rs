@@ -10,9 +10,10 @@ use crate::{
     errors::CrateResult,
     rollup::{mock_rollup_fs::MockRollupFS, traits::RollupStateTrait},
     types::{
-        common::{BalanceProof, BlsPublicKey, BlsSignature, TransactionProof},
+        balance::BalanceProof,
         public_key::BlsPublicKeyWrapper,
-        transaction::TransactionBatch,
+        signatures::{BlsPublicKey, BlsSignature},
+        transaction::{TransactionBatch, TransactionProof},
     },
 };
 

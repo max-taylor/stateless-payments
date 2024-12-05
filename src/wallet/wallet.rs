@@ -7,11 +7,10 @@ use crate::{
     errors::CrateResult,
     rollup::traits::RollupStateTrait,
     types::{
-        common::{
-            generate_salt, BalanceProof, BalanceProofKey, BlsPublicKey, BlsSecretKey, BlsSignature,
-            TransactionProof,
-        },
-        transaction::{SimpleTransaction, TransactionBatch},
+        balance::{BalanceProof, BalanceProofKey},
+        common::generate_salt,
+        signatures::{BlsPublicKey, BlsSecretKey, BlsSignature},
+        transaction::{SimpleTransaction, TransactionBatch, TransactionProof},
     },
 };
 

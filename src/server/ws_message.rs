@@ -2,8 +2,10 @@ use serde::{ser::Error, Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::types::{
-    common::{BalanceProof, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock},
-    transaction::TransactionBatch,
+    balance::BalanceProof,
+    common::TransferBlock,
+    signatures::{BlsPublicKey, BlsSignature},
+    transaction::{TransactionBatch, TransactionProof},
 };
 
 // The WsMessage enum is used to represent the different types of messages that can be sent over the WebSocket connection.

@@ -5,7 +5,7 @@ use stateless_bitcoin_l2::{
         mock_rollup_memory::MockRollupMemory,
         traits::{MockRollupStateTrait, RollupStateTrait},
     },
-    types::common::{BalanceProof, TransactionProof},
+    types::{balance::BalanceProof, transaction::TransactionProof},
     wallet::wallet::Wallet,
 };
 

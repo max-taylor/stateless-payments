@@ -8,7 +8,11 @@ use crate::{
     errors::CrateResult,
     rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
     server::ws_message::WsMessage,
-    types::common::{BalanceProof, BalanceProofKey, TransactionProof, U8_32},
+    types::{
+        balance::{BalanceProof, BalanceProofKey},
+        common::U8_32,
+        transaction::TransactionProof,
+    },
     wallet::wallet::Wallet,
 };
 

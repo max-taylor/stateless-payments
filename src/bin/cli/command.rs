@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use stateless_bitcoin_l2::types::common::BlsPublicKey;
+use stateless_bitcoin_l2::types::signatures::BlsPublicKey;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {

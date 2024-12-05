@@ -6,12 +6,10 @@ use sha2::{Digest, Sha256};
 use crate::{
     errors::CrateResult,
     types::{
-        common::{
-            generate_salt, BlsPublicKey, BlsSignature, TransactionProof, TransferBlock,
-            TransferBlockSignature, U8_32,
-        },
+        common::{generate_salt, TransferBlock, TransferBlockSignature, U8_32},
         public_key::BlsPublicKeyWrapper,
-        transaction::TransactionBatch,
+        signatures::{BlsPublicKey, BlsSignature},
+        transaction::{TransactionBatch, TransactionProof},
     },
 };
 

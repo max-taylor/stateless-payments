@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use crate::{
     errors::{CrateError, CrateResult},
     rollup::traits::RollupStateTrait,
-    types::{common::BalanceProof, public_key::BlsPublicKeyWrapper},
+    types::{balance::BalanceProof, public_key::BlsPublicKeyWrapper},
 };
 
 pub fn merge_balance_proofs(

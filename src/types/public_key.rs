@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::common::BlsPublicKey;
+use super::signatures::BlsPublicKey;
 
 // Unfortunately PublicKey does not implement the Hash trait
 // And in order to use it as a key in a HashMap we need to implement the Hash trait

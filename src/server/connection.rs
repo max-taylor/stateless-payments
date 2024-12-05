@@ -11,7 +11,7 @@ use crate::{
         server_state::{Connection, ServerState},
         utils::parse_ws_message,
     },
-    types::common::BlsPublicKey,
+    types::signatures::BlsPublicKey,
 };
 
 use super::ws_message::WsMessage;

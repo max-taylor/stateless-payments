@@ -2,10 +2,7 @@ use anyhow::anyhow;
 
 use crate::{
     errors::CrateResult,
-    types::{
-        common::{BlsPublicKey, TransferBlock},
-        public_key::AccountTotals,
-    },
+    types::{common::TransferBlock, public_key::AccountTotals, signatures::BlsPublicKey},
 };
 
 use super::traits::{MockRollupStateTrait, RollupStateTrait};

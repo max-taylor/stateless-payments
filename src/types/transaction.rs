@@ -1,9 +1,10 @@
+use rs_merkle::MerkleProof;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::types::common::U8_32;
+use crate::{aggregator::Sha256Algorithm, types::common::U8_32};
 
-use super::common::BlsPublicKey;
+use super::signatures::BlsPublicKey;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimpleTransaction {
@@ -55,5 +56,28 @@ impl TransactionBatch {
         }
 
         hasher.finalize().into()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionProof {
+    pub proof_hashes: Vec<U8_32>,
+    pub root: U8_32,
+    pub batch: TransactionBatch,
+    pub index: usize,
+    pub total_leaves: usize,
+}
+
+impl TransactionProof {
+    pub fn verify(&self) -> bool {
+        let merkle_proof: MerkleProof<Sha256Algorithm> =
+            MerkleProof::new(self.proof_hashes.clone());
+
+        merkle_proof.verify(
+            self.root,
+            &[self.index],
+            &[self.batch.tx_hash()],
+            self.total_leaves,
+        )
     }
 }
