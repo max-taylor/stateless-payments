@@ -23,6 +23,7 @@ pub enum WsMessage {
 
 impl From<WsMessage> for Message {
     fn from(ws_message: WsMessage) -> Message {
+        dbg!(&ws_message);
         let json = serde_json::to_string(&ws_message).unwrap();
         Message::Text(json)
     }

@@ -67,6 +67,7 @@ impl Client {
         let message: Message =
             WsMessage::CSendTransactionBatchSignature(self.wallet.public_key, signature).into();
 
+        info!("Validated proof, sending signature to server");
         self.ws_send.send(message).await?;
 
         Ok(())

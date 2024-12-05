@@ -53,7 +53,6 @@ impl ServerState {
 
     pub async fn start_collecing_signatures(&mut self) -> CrateResult<Option<()>> {
         if self.aggregator.tx_hash_to_metadata.len() == 0 {
-            info!("No transactions to start collecting signatures for");
             return Ok(None);
         }
 

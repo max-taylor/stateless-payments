@@ -51,7 +51,10 @@ pub async fn handle_connection(
     let _guard: ConnectionGuard;
 
     if let WsMessage::CAddConnection(public_key) = parse_ws_message(msg?)? {
-        info!("Received public key, adding connection: {:?}", public_key);
+        info!(
+            "Received public key, adding connection: {:?}",
+            serde_json::to_string(&public_key)?
+        );
 
         let connection = Connection {
             public_key: public_key.clone(),

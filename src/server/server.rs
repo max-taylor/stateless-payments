@@ -70,13 +70,12 @@ fn spawn_block_producer(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<Cra
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
-            let mut server_state = server_state.lock().await;
-
             // Start collecting signatures, only if there are transactions
             // The method returns None if there are no transactions
-            match server_state.start_collecing_signatures().await {
+            match server_state.lock().await.start_collecing_signatures().await {
                 Ok(value) => {
                     if value.is_none() {
+                        info!("No transactions to start collecting signatures for");
                         continue;
                     }
                 }
@@ -87,10 +86,13 @@ fn spawn_block_producer(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<Cra
                 }
             }
 
+            info!("Waiting for clients to send signatures");
             // Wait for clients to send signatures
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
-            server_state.finalise().await;
+            if let Err(e) = server_state.lock().await.finalise().await {
+                error!("Error finalising: {}", e);
+            }
         }
     })
 }
