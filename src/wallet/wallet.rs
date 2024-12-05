@@ -8,7 +8,8 @@ use crate::{
     rollup::traits::RollupStateTrait,
     types::{
         common::{
-            generate_salt, BalanceProof, BlsPublicKey, BlsSecretKey, BlsSignature, TransactionProof,
+            generate_salt, BalanceProof, BalanceProofKey, BlsPublicKey, BlsSecretKey, BlsSignature,
+            TransactionProof,
         },
         transaction::{SimpleTransaction, TransactionBatch},
     },
@@ -145,9 +146,10 @@ impl Wallet {
             return Err(anyhow::anyhow!("Invalid transaction"));
         }
 
-        if !senders_balance_proof
-            .contains_key(&(transaction_proof.root, transaction_proof.batch.from.into()))
-        {
+        if !senders_balance_proof.contains_key(&BalanceProofKey {
+            root: transaction_proof.root,
+            public_key: transaction_proof.batch.from.into(),
+        }) {
             return Err(anyhow!(
                 "Transaction not included in sender's balance proof"
             ));
@@ -204,7 +206,10 @@ impl Wallet {
         )?;
 
         self.balance_proof.insert(
-            (transaction_proof.root, self.public_key.into()),
+            BalanceProofKey {
+                root: transaction_proof.root,
+                public_key: self.public_key.into(),
+            },
             transaction_proof.clone(),
         );
         // TODO: This should be moved to an uncomfirmed state

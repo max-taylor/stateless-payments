@@ -161,18 +161,24 @@ impl ServerState {
         // aggregator.finalise does a variety of checks to ensure the aggregator is in the correct state
         let transfer_block = self.aggregator.finalise()?;
 
-        // TODO: Inscription to L1 should be here
         self.rollup_state
             .add_transfer_block(transfer_block.clone())?;
 
-        for connection in self.connections.values_mut() {
-            if let Err(e) = connection
-                .ws_send
-                .send(WsMessage::SFinalised(transfer_block.clone()).into())
-                .await
-            {
-                // Don't propogate errors here, because we want to continue to send to other connections
-                error!("Failed to send finalise message: {:?}", e);
+        for (connection, _) in self.connections_with_tx.iter() {
+            match self.connections.get_mut(connection) {
+                Some(connection) => {
+                    if let Err(e) = connection
+                        .ws_send
+                        .send(WsMessage::SFinalised(transfer_block.clone()).into())
+                        .await
+                    {
+                        // Don't propogate errors here, because we want to continue to send to other connections
+                        error!("Failed to send finalise message: {:?}", e);
+                    }
+                }
+                None => {
+                    warn!("Connection not found for public key: {:?}", connection);
+                }
             }
         }
 

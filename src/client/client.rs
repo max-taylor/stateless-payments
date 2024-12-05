@@ -8,7 +8,7 @@ use crate::{
     errors::CrateResult,
     rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
     server::ws_message::WsMessage,
-    types::common::{BalanceProof, TransactionProof, U8_32},
+    types::common::{BalanceProof, BalanceProofKey, TransactionProof, U8_32},
     wallet::wallet::Wallet,
 };
 
@@ -86,16 +86,17 @@ impl Client {
 
         info!("Finalising batch with root: {:?}", root);
 
-        let proof = self
-            .wallet
-            .balance_proof
-            .get(&(root, self.wallet.public_key.clone().into()));
+        let proof = self.wallet.balance_proof.get(&BalanceProofKey {
+            root,
+            public_key: self.wallet.public_key.clone().into(),
+        });
 
         if !proof.is_some() {
             return Err(anyhow!("No proof found for the given root and public key"));
         }
 
         info!("Sending transaction to receiver");
+        dbg!(self.wallet.balance_proof.clone());
         let message: Message = WsMessage::CSendBatchToReceivers(
             proof.unwrap().clone(),
             self.wallet.balance_proof.clone(),
