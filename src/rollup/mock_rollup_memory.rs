@@ -9,7 +9,7 @@ use crate::{
     types::{common::TransferBlock, public_key::AccountTotals, signatures::BlsPublicKey},
 };
 
-use super::traits::{AsyncCrateResult, MockRollupStateTrait, RollupStateTrait};
+use super::traits::{MockRollupStateTrait, RollupStateTrait};
 
 // This is mostly used for test cases
 pub struct MockRollupMemory {
@@ -63,7 +63,7 @@ impl RollupStateTrait for MockRollupMemory {
 
         Ok(())
     }
-    async fn get_withdraw_totals(&self) -> AsyncCrateResult<AccountTotals> {
+    async fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
         Ok(self.withdraw_totals.clone())
     }
 
@@ -76,19 +76,20 @@ impl RollupStateTrait for MockRollupMemory {
     }
 }
 
-// impl RollupStateTrait for Arc<Mutex<MockRollupMemory>> {
-//     async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
-//         self.lock().await.add_transfer_block(transfer_block)
-//     }
-//     fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
-//         self.lock().unwrap().get_withdraw_totals()
-//     }
-//
-//     fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
-//         self.lock().unwrap().get_deposit_totals()
-//     }
-//
-//     fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
-//         self.lock().unwrap().get_transfer_blocks()
-//     }
-// }
+#[async_trait]
+impl RollupStateTrait for Arc<Mutex<MockRollupMemory>> {
+    async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+        self.lock().await.add_transfer_block(transfer_block).await
+    }
+    async fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
+        self.lock().await.get_withdraw_totals().await
+    }
+
+    async fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
+        self.lock().await.get_deposit_totals().await
+    }
+
+    async fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
+        self.lock().await.get_transfer_blocks().await
+    }
+}

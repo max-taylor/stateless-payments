@@ -295,6 +295,10 @@ impl Wallet {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::Mutex;
+
     use crate::{
         aggregator::Aggregator,
         errors::{CrateError, CrateResult},
@@ -303,6 +307,7 @@ mod tests {
             traits::{MockRollupStateTrait, RollupStateTrait},
         },
         wallet::constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
+        websocket::client::client::Client,
     };
 
     use super::Wallet;
@@ -567,27 +572,125 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_wallet_should_automatically_sync() -> CrateResult<()> {
-        let mut rollup_state = MockRollupMemory::new();
+    const DEPOSIT: u64 = 100;
+    const SLEEP_TIME_SECONDS: u64 = TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS + 1;
+
+    async fn setup_auto_sync_tests(
+    ) -> CrateResult<(Arc<Mutex<MockRollupMemory>>, Arc<Mutex<Wallet>>)> {
+        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
+
         let (client, _) = Wallet::new_with_automatic_sync(
             None,
-            rollup_state,
+            rollup_state.clone(),
             TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
         )
         .await?;
 
+        let client_public_key = client.lock().await.public_key;
+
+        // DEPOSIT
+
+        rollup_state
+            .lock()
+            .await
+            .add_deposit(client_public_key, DEPOSIT)
+            .await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+
+        Ok((rollup_state, client))
+    }
+
+    #[tokio::test]
+    async fn test_wallet_auto_syncs_deposits() -> CrateResult<()> {
+        let (_, client) = setup_auto_sync_tests().await?;
+
+        assert_eq!(client.lock().await.balance, DEPOSIT);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_wallet_auto_syncs_withdraws() -> CrateResult<()> {
+        let (rollup_state, client) = setup_auto_sync_tests().await?;
+
         let prev_balance = client.lock().await.balance;
 
-        // rollup_state.add_deposit(client.lock().await.public_key, 100)?;
-        // let mut aggregator = Aggregator::new();
-        //
-        //
-        // Test automatic sync for deposit
-        //
-        // Test automatic sync for withdraw
-        //
-        // Test automatic sync for transfer
+        let withdraw = 50;
+
+        rollup_state
+            .lock()
+            .await
+            .add_withdraw(&client.lock().await.public_key, withdraw)
+            .await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+
+        assert_eq!(client.lock().await.balance, prev_balance - withdraw);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_wallet_auto_syncs_transfers() -> CrateResult<()> {
+        let (rollup_state, client) = setup_auto_sync_tests().await?;
+
+        // TRANSFER
+
+        let (receiver, _) = Wallet::new_with_automatic_sync(
+            None,
+            rollup_state.clone(),
+            TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
+        )
+        .await?;
+
+        let mut aggregator = Aggregator::new();
+
+        let transfer_amount = client.lock().await.balance;
+
+        client
+            .lock()
+            .await
+            .append_transaction_to_batch(receiver.lock().await.public_key, transfer_amount)?;
+
+        let batch = client.lock().await.produce_batch()?;
+
+        aggregator.add_batch(&batch)?;
+
+        aggregator.start_collecting_signatures()?;
+
+        let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
+
+        let signature = client
+            .lock()
+            .await
+            .validate_and_sign_proof(&merkle_tree_proof)?;
+
+        aggregator.add_signature(&client.lock().await.public_key, &signature)?;
+
+        let transfer_block = aggregator.finalise()?;
+
+        rollup_state
+            .lock()
+            .await
+            .add_transfer_block(transfer_block)
+            .await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+
+        assert_eq!(client.lock().await.balance, 0);
+
+        receiver
+            .lock()
+            .await
+            .add_receiving_transaction(
+                &merkle_tree_proof,
+                &client.lock().await.balance_proof,
+                &rollup_state,
+            )
+            .await?;
+
+        assert_eq!(receiver.lock().await.balance, transfer_amount);
 
         Ok(())
     }

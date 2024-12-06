@@ -5,12 +5,8 @@ use crate::{
     types::{common::TransferBlock, public_key::AccountTotals, signatures::BlsPublicKey},
 };
 
-pub type AsyncCrateResult<T> = Result<T, anyhow::Error>;
-
 #[async_trait]
 pub trait RollupStateTrait {
-    // async fn test_async() -> CrateResult<()>;
-
     async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()>;
 
     async fn get_withdraw_totals(&self) -> CrateResult<AccountTotals>;
