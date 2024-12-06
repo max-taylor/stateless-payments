@@ -6,6 +6,7 @@ default-run = "stateless-bitcoin-l2"
 
 [dependencies]
 anyhow = "1.0.93"
+async-trait = "0.1.83"
 base64 = "0.22.1"
 blsful = "2.5.7"
 env_logger = "0.11.5"

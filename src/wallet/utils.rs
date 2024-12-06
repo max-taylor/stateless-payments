@@ -27,8 +27,8 @@ pub fn merge_balance_proofs(
 
 // The pure method calculates the balances for all accounts in the balance proof, validating all
 // proofs
-pub fn calculate_balances_and_validate_balance_proof(
-    rollup_state: &impl RollupStateTrait,
+pub async fn calculate_balances_and_validate_balance_proof(
+    rollup_state: &(impl RollupStateTrait + Sync),
     balance_proof: &BalanceProof,
 ) -> CrateResult<HashMap<BlsPublicKeyWrapper, u64>> {
     // Use i128 to avoid underflow, we don't check deposit, withdrawal and tx ordering. We just
@@ -51,7 +51,8 @@ pub fn calculate_balances_and_validate_balance_proof(
             .get_transfer_block_for_merkle_root_and_pubkey(
                 &transaction_proof.root,
                 &batch.from.into(),
-            )?
+            )
+            .await?
             .ok_or(CrateError::BatchNotInATransferBlock(batch.clone()))?;
 
         // Validates the aggregated signature
@@ -76,8 +77,12 @@ pub fn calculate_balances_and_validate_balance_proof(
     let mut balances: HashMap<BlsPublicKeyWrapper, u64> = HashMap::new();
 
     for (public_key, amount) in unchecked_balances {
-        let deposit_amount = rollup_state.get_account_deposit_amount(&public_key.into())?;
-        let withdraw_amount = rollup_state.get_account_withdraw_amount(&public_key.into())?;
+        let deposit_amount = rollup_state
+            .get_account_deposit_amount(&public_key.into())
+            .await?;
+        let withdraw_amount = rollup_state
+            .get_account_withdraw_amount(&public_key.into())
+            .await?;
 
         let balance = amount + deposit_amount as i128 - withdraw_amount as i128;
 

@@ -1,2 +1,3 @@
-pub mod wallet;
+mod constants;
 mod utils;
+pub mod wallet;

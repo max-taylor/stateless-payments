@@ -12,25 +12,26 @@ use stateless_bitcoin_l2::{
 // This test creates a number of accounts, each account sends a transaction to the next in the
 // array. This goes on recursively until the last account has all the funds.
 // This validates a relatively complex flow of transactions, proofs and dependent transactions.
-#[test]
-fn test_flow() -> CrateResult<()> {
+#[tokio::test]
+async fn test_flow() -> CrateResult<()> {
     let mut rollup_state = MockRollupMemory::new();
 
     let num_accounts = 10;
     let amount_to_increment = 100;
 
-    let mut accounts = (0..num_accounts)
-        .map(|idx| {
-            let mut client = Wallet::new();
-            let amount = calculate_total_for_account(idx, amount_to_increment);
-            rollup_state
-                .add_deposit(client.public_key, amount.try_into().unwrap())
-                .unwrap();
-            client.sync_rollup_state(&rollup_state).unwrap();
+    let mut accounts: Vec<Wallet> = vec![];
 
-            client
-        })
-        .collect::<Vec<_>>();
+    for idx in 0..num_accounts {
+        let mut client = Wallet::new(None);
+        let amount = calculate_total_for_account(idx, amount_to_increment);
+        rollup_state
+            .add_deposit(client.public_key, amount.try_into().unwrap())
+            .await
+            .unwrap();
+        client.sync_rollup_state(&rollup_state).await.unwrap();
+
+        accounts.push(client);
+    }
 
     let total_balance = accounts.iter().map(|account| account.balance).sum::<u64>();
 
@@ -86,18 +87,20 @@ fn test_flow() -> CrateResult<()> {
 
         let block = aggregator.finalise()?;
 
-        rollup_state.add_transfer_block(block)?;
+        rollup_state.add_transfer_block(block).await?;
 
         // Validate the proofs and update the balances
         for (idx, account) in accounts.iter_mut().enumerate() {
             // Add receiving transaction to the account only if it's not the first account
             if idx > aggregator_loop {
                 let loop_diff = idx - aggregator_loop - 1;
-                account.add_receiving_transaction(
-                    &proofs[loop_diff].0,
-                    &proofs[loop_diff].1,
-                    &rollup_state,
-                )?;
+                account
+                    .add_receiving_transaction(
+                        &proofs[loop_diff].0,
+                        &proofs[loop_diff].1,
+                        &rollup_state,
+                    )
+                    .await?;
             }
 
             let expected_balance = calculate_expected_balance(

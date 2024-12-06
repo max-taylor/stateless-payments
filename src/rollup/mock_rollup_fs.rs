@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use async_trait::async_trait;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer};
@@ -79,8 +80,9 @@ impl MockRollupFS {
     }
 }
 
+#[async_trait]
 impl MockRollupStateTrait for MockRollupFS {
-    fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
+    async fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
         let mut state = MockRollupFS::read_state_from_fs()?;
 
         state
@@ -93,9 +95,9 @@ impl MockRollupStateTrait for MockRollupFS {
         Ok(())
     }
 
-    fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
-        let deposit_amount = self.get_account_deposit_amount(&pubkey)?;
-        let withdraw_amount = self.get_account_withdraw_amount(&pubkey)?;
+    async fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
+        let deposit_amount = self.get_account_deposit_amount(&pubkey).await?;
+        let withdraw_amount = self.get_account_withdraw_amount(&pubkey).await?;
 
         if deposit_amount < withdraw_amount + amount {
             return Err(anyhow!("Insufficient funds"));
@@ -114,8 +116,9 @@ impl MockRollupStateTrait for MockRollupFS {
     }
 }
 
+#[async_trait]
 impl RollupStateTrait for MockRollupFS {
-    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+    async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
         // Sync to FS
         let mut state = MockRollupFS::read_state_from_fs()?;
         state.transfer_blocks.push(transfer_block);
@@ -124,18 +127,18 @@ impl RollupStateTrait for MockRollupFS {
         Ok(())
     }
 
-    fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
+    async fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
         // Reload from FS
         let state = MockRollupFS::read_state_from_fs()?;
         Ok(state.withdraw_totals)
     }
 
-    fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
+    async fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
         let state = MockRollupFS::read_state_from_fs()?;
         Ok(state.deposit_totals)
     }
 
-    fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
+    async fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
         let state = MockRollupFS::read_state_from_fs()?;
         Ok(state.transfer_blocks)
     }

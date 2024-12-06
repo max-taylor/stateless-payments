@@ -197,41 +197,38 @@ mod tests {
         wallet::wallet::Wallet,
     };
 
-    fn setup_with_unique_accounts_and_transactions(
+    async fn setup_with_unique_accounts_and_transactions(
         num_accounts: usize,
     ) -> CrateResult<(Aggregator, Vec<Wallet>, Vec<TransactionBatch>)> {
         let mut rollup_state = MockRollupMemory::new();
         let mut aggregator = Aggregator::new();
         let mut accounts = (0..num_accounts)
             .into_iter()
-            .map(|_| Wallet::new())
+            .map(|_| Wallet::new(None))
             .collect::<Vec<Wallet>>();
-        let receiver = Wallet::new();
+        let receiver = Wallet::new(None);
 
-        let batches = accounts
-            .iter_mut()
-            .map(|account| {
-                rollup_state.add_deposit(account.public_key, 100).unwrap();
-                account.sync_rollup_state(&rollup_state).unwrap();
+        let mut batches: Vec<TransactionBatch> = vec![];
 
-                account
-                    .append_transaction_to_batch(receiver.public_key, 100)
-                    .unwrap();
+        for account in accounts.iter_mut() {
+            rollup_state.add_deposit(account.public_key, 100).await?;
+            account.sync_rollup_state(&rollup_state).await?;
 
-                let batch = account.produce_batch().unwrap();
+            account.append_transaction_to_batch(receiver.public_key, 100)?;
 
-                aggregator.add_batch(&batch).unwrap();
+            let batch = account.produce_batch().unwrap();
 
-                batch
-            })
-            .collect::<Vec<TransactionBatch>>();
+            aggregator.add_batch(&batch).unwrap();
+
+            batches.push(batch);
+        }
 
         Ok((aggregator, accounts, batches))
     }
 
-    #[test]
-    fn test_can_setup_accounts_and_verify() -> CrateResult<()> {
-        let (mut aggregator, _, batches) = setup_with_unique_accounts_and_transactions(10)?;
+    #[tokio::test]
+    async fn test_can_setup_accounts_and_verify() -> CrateResult<()> {
+        let (mut aggregator, _, batches) = setup_with_unique_accounts_and_transactions(10).await?;
 
         aggregator.start_collecting_signatures()?;
 
@@ -248,10 +245,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_finalise() -> CrateResult<()> {
+    #[tokio::test]
+    async fn test_finalise() -> CrateResult<()> {
         let (mut aggregator, mut accounts, batches) =
-            setup_with_unique_accounts_and_transactions(2)?;
+            setup_with_unique_accounts_and_transactions(2).await?;
 
         aggregator.start_collecting_signatures()?;
 

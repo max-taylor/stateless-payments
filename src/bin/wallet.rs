@@ -28,12 +28,12 @@ async fn main() -> CrateResult<()> {
     let (ws_send, ws_receive) = socket.split();
 
     let client = Arc::new(Mutex::new(
-        Client::new(Wallet::new(), rollup_state, ws_send).await?,
+        Client::new(Wallet::new(None), rollup_state, ws_send).await?,
     ));
 
     {
         let mut client = client.lock().await;
-        client.add_mock_deposit(100)?;
+        client.add_mock_deposit(100).await?;
 
         println!("Welcome to the L2 wallet CLI");
 
@@ -98,10 +98,13 @@ async fn handle_ws_message(
                 .finalise_batch(block.merkle_root)
                 .await?
         }
-        WsMessage::SReceiveTransaction(proof, balance_proof) => client
-            .lock()
-            .await
-            .add_receiving_transaction(&proof, &balance_proof)?,
+        WsMessage::SReceiveTransaction(proof, balance_proof) => {
+            client
+                .lock()
+                .await
+                .add_receiving_transaction(&proof, &balance_proof)
+                .await?
+        }
         _ => {
             return Err(anyhow!("Invalid message type"));
         }

@@ -162,7 +162,8 @@ impl ServerState {
         let transfer_block = self.aggregator.finalise()?;
 
         self.rollup_state
-            .add_transfer_block(transfer_block.clone())?;
+            .add_transfer_block(transfer_block.clone())
+            .await?;
 
         for (connection, _) in self.connections_with_tx.iter() {
             match self.connections.get_mut(connection) {

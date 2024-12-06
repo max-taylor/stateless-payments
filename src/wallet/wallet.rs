@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
 use log::info;
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
     errors::CrateResult,
@@ -33,7 +34,7 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    pub fn new() -> Wallet {
+    pub fn new(persist_path: Option<String>) -> Wallet {
         let private_key = BlsSecretKey::new();
 
         Wallet {
@@ -46,24 +47,7 @@ impl Wallet {
         }
     }
 
-    // This is called somewhat intermittently to ensure the client is in sync with the contract
-    // It mainly ensures that the user's deposits and withdraws are accounted for
-    pub fn sync_rollup_state(&mut self, rollup_state: &impl RollupStateTrait) -> CrateResult<()> {
-        let balances =
-            calculate_balances_and_validate_balance_proof(rollup_state, &self.balance_proof)?;
-
-        if let Some(current_users_balance) = balances.get(&self.public_key.into()) {
-            self.balance = *current_users_balance;
-        } else {
-            let deposit_amount = rollup_state.get_account_deposit_amount(&self.public_key)?;
-            let withdraw_amount = rollup_state.get_account_withdraw_amount(&self.public_key)?;
-
-            self.balance = deposit_amount - withdraw_amount;
-        }
-
-        Ok(())
-    }
-
+    /// Core logic of the wallet
     pub fn append_transaction_to_batch(
         &mut self,
         to: BlsPublicKey,
@@ -123,11 +107,11 @@ impl Wallet {
     // TODO: This should validate that the rollup contract doesn't have any additional transactions
     // that weren't apart of the senders balance proof. If they do that means the sender may be trying
     // to double spend
-    pub fn add_receiving_transaction(
+    pub async fn add_receiving_transaction(
         &mut self,
         transaction_proof: &TransactionProof,
         senders_balance_proof: &BalanceProof,
-        rollup_contract: &impl RollupStateTrait,
+        rollup_contract: &(impl RollupStateTrait + Send + Sync),
     ) -> CrateResult<()> {
         // Iterate over the batch and ensure one is addressed to this user
         if !transaction_proof
@@ -158,7 +142,7 @@ impl Wallet {
             merge_balance_proofs(self.balance_proof.clone(), senders_balance_proof.clone())?;
 
         let balances =
-            calculate_balances_and_validate_balance_proof(rollup_contract, &merged_proof)?;
+            calculate_balances_and_validate_balance_proof(rollup_contract, &merged_proof).await?;
 
         let current_users_balance = balances.get(&self.public_key.into()).ok_or(anyhow!(
             "Current user's balance not found in merged balance proof"
@@ -217,6 +201,96 @@ impl Wallet {
 
         Ok(signature)
     }
+
+    /// All the rollup related logic to keep the wallet in-sync with the rollup state
+    pub async fn new_with_automatic_sync(
+        perist_path: Option<String>,
+        rollup_state: impl RollupStateTrait + Send + Sync + 'static,
+        sync_rate_seconds: u64,
+    ) -> CrateResult<(Arc<Mutex<Wallet>>, JoinHandle<CrateResult<()>>)> {
+        let wallet = Arc::new(Mutex::new(Wallet::new(perist_path)));
+
+        let spawn_handle =
+            Wallet::spawn_automatic_sync_thread(wallet.clone(), rollup_state, sync_rate_seconds)
+                .await?;
+
+        Ok((wallet, spawn_handle))
+    }
+
+    async fn spawn_automatic_sync_thread(
+        wallet: Arc<Mutex<Wallet>>,
+        rollup_state: impl RollupStateTrait + Send + Sync + 'static,
+        sync_rate_seconds: u64,
+    ) -> CrateResult<JoinHandle<CrateResult<()>>> {
+        wallet.lock().await.sync_rollup_state(&rollup_state).await?;
+
+        #[derive(PartialEq, Eq)]
+        struct SyncState {
+            deposit_total: u64,
+            withdraw_total: u64,
+            total_transfer_blocks: u64,
+        }
+
+        async fn get_sync_state(
+            rollup_state: &(impl RollupStateTrait + Send + Sync),
+            public_key: &BlsPublicKey,
+        ) -> CrateResult<SyncState> {
+            Ok(SyncState {
+                deposit_total: rollup_state.get_account_deposit_amount(public_key).await?,
+                withdraw_total: rollup_state.get_account_withdraw_amount(public_key).await?,
+                total_transfer_blocks: rollup_state
+                    .get_account_transfer_blocks(public_key)
+                    .await?
+                    .len()
+                    .try_into()?,
+            })
+        }
+
+        let public_key = wallet.lock().await.public_key;
+
+        let mut last_sync_state = get_sync_state(&rollup_state, &public_key).await?;
+
+        Ok(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(sync_rate_seconds)).await;
+
+                let new_sync_state = get_sync_state(&rollup_state, &public_key).await?;
+
+                if new_sync_state != last_sync_state {
+                    let mut wallet = wallet.lock().await;
+                    wallet.sync_rollup_state(&rollup_state).await?;
+                }
+
+                last_sync_state = new_sync_state;
+            }
+        }))
+    }
+
+    // This is called somewhat intermittently to ensure the client is in sync with the contract
+    // It mainly ensures that the user's deposits and withdraws are accounted for
+    pub async fn sync_rollup_state(
+        &mut self,
+        rollup_state: &(impl RollupStateTrait + Send + Sync),
+    ) -> CrateResult<()> {
+        let balances =
+            calculate_balances_and_validate_balance_proof(rollup_state, &self.balance_proof)
+                .await?;
+
+        if let Some(current_users_balance) = balances.get(&self.public_key.into()) {
+            self.balance = *current_users_balance;
+        } else {
+            let deposit_amount = rollup_state
+                .get_account_deposit_amount(&self.public_key)
+                .await?;
+            let withdraw_amount = rollup_state
+                .get_account_withdraw_amount(&self.public_key)
+                .await?;
+
+            self.balance = deposit_amount - withdraw_amount;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -228,36 +302,40 @@ mod tests {
             mock_rollup_memory::MockRollupMemory,
             traits::{MockRollupStateTrait, RollupStateTrait},
         },
+        wallet::constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
     };
 
     use super::Wallet;
 
-    fn setup(initial_deposit: u64) -> CrateResult<(Wallet, MockRollupMemory)> {
-        let mut client = Wallet::new();
+    async fn setup(initial_deposit: u64) -> CrateResult<(Wallet, MockRollupMemory)> {
+        let mut client = Wallet::new(None);
         let mut rollup_state = MockRollupMemory::new();
-        rollup_state.add_deposit(client.public_key, initial_deposit)?;
+        rollup_state
+            .add_deposit(client.public_key, initial_deposit)
+            .await?;
 
-        client.sync_rollup_state(&rollup_state).unwrap();
+        client.sync_rollup_state(&rollup_state).await?;
 
         Ok((client, rollup_state))
     }
 
-    #[test]
-    fn test_balance_increases_with_deposits_when_syncing_rollup_state() -> CrateResult<()> {
-        let (client, _) = setup(100)?;
+    #[tokio::test]
+    async fn test_balance_increases_with_deposits_when_syncing_rollup_state() -> CrateResult<()> {
+        let (client, _) = setup(100).await?;
 
         assert_eq!(client.balance, 100);
 
         Ok(())
     }
 
-    #[test]
-    fn test_balance_decreases_with_withdrawals_when_syncing_rollup_state() -> CrateResult<()> {
-        let (mut client, mut rollup_state) = setup(100)?;
+    #[tokio::test]
+    async fn test_balance_decreases_with_withdrawals_when_syncing_rollup_state() -> CrateResult<()>
+    {
+        let (mut client, mut rollup_state) = setup(100).await?;
 
-        rollup_state.add_withdraw(&client.public_key, 50)?;
+        rollup_state.add_withdraw(&client.public_key, 50).await?;
 
-        client.sync_rollup_state(&rollup_state)?;
+        client.sync_rollup_state(&rollup_state).await?;
 
         assert_eq!(client.balance, 50);
 
@@ -276,11 +354,11 @@ mod tests {
         // Invalid transaction
     }
 
-    #[test]
-    fn test_create_transaction_succeeds() -> CrateResult<()> {
-        let (mut client, _) = setup(100)?;
+    #[tokio::test]
+    async fn test_create_transaction_succeeds() -> CrateResult<()> {
+        let (mut client, _) = setup(100).await?;
 
-        let receiver = Wallet::new();
+        let receiver = Wallet::new(None);
 
         let batch = client
             .append_transaction_to_batch(receiver.public_key, 100)?
@@ -298,11 +376,11 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_create_transaction_fails_with_insufficient_balance() -> CrateResult<()> {
-        let (mut client, _) = setup(100)?;
+    #[tokio::test]
+    async fn test_create_transaction_fails_with_insufficient_balance() -> CrateResult<()> {
+        let (mut client, _) = setup(100).await?;
 
-        let receiver = Wallet::new();
+        let receiver = Wallet::new(None);
 
         let transaction = client.append_transaction_to_batch(receiver.public_key, 101);
 
@@ -312,11 +390,11 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_validate_and_sign_transaction_succeeds() -> CrateResult<()> {
-        let (mut client, _) = setup(100)?;
+    #[tokio::test]
+    async fn test_validate_and_sign_transaction_succeeds() -> CrateResult<()> {
+        let (mut client, _) = setup(100).await?;
         let mut aggregator = Aggregator::new();
-        let receiver = Wallet::new();
+        let receiver = Wallet::new(None);
         client.append_transaction_to_batch(receiver.public_key, 100)?;
         let batch = client.produce_batch()?;
 
@@ -338,12 +416,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_adding_multiple_transactions_to_a_batch_succeeds() -> CrateResult<()> {
-        let (mut client, _) = setup(300)?;
-        let alice = Wallet::new();
-        let mary = Wallet::new();
-        let bobs_uncle = Wallet::new();
+    #[tokio::test]
+    async fn test_adding_multiple_transactions_to_a_batch_succeeds() -> CrateResult<()> {
+        let (mut client, _) = setup(300).await?;
+        let alice = Wallet::new(None);
+        let mary = Wallet::new(None);
+        let bobs_uncle = Wallet::new(None);
 
         client.append_transaction_to_batch(alice.public_key, 100)?;
         client.append_transaction_to_batch(bobs_uncle.public_key, 100)?;
@@ -355,11 +433,11 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_add_receiving_transaction_succeeds() -> CrateResult<()> {
+    #[tokio::test]
+    async fn test_add_receiving_transaction_succeeds() -> CrateResult<()> {
         let mut aggregator = Aggregator::new();
-        let (mut client, mut rollup_state) = setup(300)?;
-        let mut alice = Wallet::new();
+        let (mut client, mut rollup_state) = setup(300).await?;
+        let mut alice = Wallet::new(None);
 
         client.append_transaction_to_batch(alice.public_key, 100)?;
         let batch = client.produce_batch()?;
@@ -374,13 +452,11 @@ mod tests {
 
         let transfer_block = aggregator.finalise()?;
 
-        rollup_state.add_transfer_block(transfer_block);
+        rollup_state.add_transfer_block(transfer_block).await?;
 
-        alice.add_receiving_transaction(
-            &merkle_tree_proof,
-            &client.balance_proof,
-            &rollup_state,
-        )?;
+        alice
+            .add_receiving_transaction(&merkle_tree_proof, &client.balance_proof, &rollup_state)
+            .await?;
 
         assert_eq!(alice.balance, 100);
         assert_eq!(client.balance, 200);
@@ -388,14 +464,14 @@ mod tests {
         Ok(())
     }
 
-    fn complete_aggregator_round(
+    async fn complete_aggregator_round(
         sender: &mut Wallet,
         rollup_state: &mut MockRollupMemory,
         amount: u64,
     ) -> CrateResult<Wallet> {
         let mut aggregator = Aggregator::new();
 
-        let mut receiver = Wallet::new();
+        let mut receiver = Wallet::new(None);
 
         sender.append_transaction_to_batch(receiver.public_key, amount)?;
         let batch = sender.produce_batch()?;
@@ -409,27 +485,26 @@ mod tests {
 
         let transfer_block = aggregator.finalise()?;
 
-        rollup_state.add_transfer_block(transfer_block)?;
+        rollup_state.add_transfer_block(transfer_block).await?;
 
-        receiver.add_receiving_transaction(
-            &merkle_tree_proof,
-            &sender.balance_proof,
-            rollup_state,
-        )?;
+        receiver
+            .add_receiving_transaction(&merkle_tree_proof, &sender.balance_proof, rollup_state)
+            .await?;
 
         Ok(receiver)
     }
 
-    #[test]
-    fn test_long_chain_of_transactions_still_can_be_spent() -> CrateResult<()> {
+    #[tokio::test]
+    async fn test_long_chain_of_transactions_still_can_be_spent() -> CrateResult<()> {
         let amount = 100;
 
-        let (client, mut rollup_state) = setup(amount)?;
+        let (client, mut rollup_state) = setup(amount).await?;
 
         let mut next_sender = client;
 
         for _ in 0..10 {
-            let receiver = complete_aggregator_round(&mut next_sender, &mut rollup_state, amount)?;
+            let receiver =
+                complete_aggregator_round(&mut next_sender, &mut rollup_state, amount).await?;
 
             assert_eq!(receiver.balance, amount);
             assert_eq!(next_sender.balance, 0);
@@ -440,18 +515,19 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_add_receiving_transaction_fails_when_transaction_not_in_rollup_state() -> CrateResult<()>
-    {
+    #[tokio::test]
+    async fn test_add_receiving_transaction_fails_when_transaction_not_in_rollup_state(
+    ) -> CrateResult<()> {
         let amount = 100;
 
-        let (mut client, rollup_state) = setup(amount)?;
+        let (mut client, rollup_state) = setup(amount).await?;
 
         let mut aggregator = Aggregator::new();
 
-        let mut receiver = Wallet::new();
+        let mut receiver = Wallet::new(None);
 
         client.append_transaction_to_batch(receiver.public_key, amount)?;
+
         let batch = client.produce_batch()?;
 
         aggregator.add_batch(&batch)?;
@@ -464,11 +540,9 @@ mod tests {
         // Produce the transfer block, but don't add it to the rollup state
         aggregator.finalise()?;
 
-        let value = receiver.add_receiving_transaction(
-            &merkle_tree_proof,
-            &client.balance_proof,
-            &rollup_state,
-        );
+        let value = receiver
+            .add_receiving_transaction(&merkle_tree_proof, &client.balance_proof, &rollup_state)
+            .await;
 
         match value {
             Err(err) => {
@@ -481,6 +555,39 @@ mod tests {
             }
             _ => assert!(false, "Expected an error"),
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_wallet_persisted() -> CrateResult<()> {
+        let client = Wallet::new(Some("wallet.json".to_string()));
+        let mut aggregator = Aggregator::new();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_wallet_should_automatically_sync() -> CrateResult<()> {
+        let mut rollup_state = MockRollupMemory::new();
+        let (client, _) = Wallet::new_with_automatic_sync(
+            None,
+            rollup_state,
+            TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
+        )
+        .await?;
+
+        let prev_balance = client.lock().await.balance;
+
+        // rollup_state.add_deposit(client.lock().await.public_key, 100)?;
+        // let mut aggregator = Aggregator::new();
+        //
+        //
+        // Test automatic sync for deposit
+        //
+        // Test automatic sync for withdraw
+        //
+        // Test automatic sync for transfer
 
         Ok(())
     }

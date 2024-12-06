@@ -40,11 +40,12 @@ impl Client {
         })
     }
 
-    pub fn add_mock_deposit(&mut self, amount: u64) -> CrateResult<()> {
+    pub async fn add_mock_deposit(&mut self, amount: u64) -> CrateResult<()> {
         self.rollup_state
-            .add_deposit(self.wallet.public_key.clone(), amount)?;
+            .add_deposit(self.wallet.public_key.clone(), amount)
+            .await?;
 
-        self.wallet.sync_rollup_state(&self.rollup_state)?;
+        self.wallet.sync_rollup_state(&self.rollup_state).await?;
 
         Ok(())
     }
@@ -78,16 +79,6 @@ impl Client {
     }
 
     pub async fn finalise_batch(&mut self, root: U8_32) -> CrateResult<()> {
-        // TODO: This should move any uncomfirmed transaction batches to confirmed
-        // if self
-        //     .rollup_state
-        //     .get_account_transfer_blocks(self.wallet.public_key)?
-        //     .iter()
-        //     .any(|block| block)
-        // {
-        //     return Ok(());
-        // }
-
         info!("Finalising batch with root: {:?}", root);
 
         let proof = self.wallet.balance_proof.get(&BalanceProofKey {
@@ -112,7 +103,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn add_receiving_transaction(
+    pub async fn add_receiving_transaction(
         &mut self,
         proof: &TransactionProof,
         senders_balance_proof: &BalanceProof,
@@ -122,7 +113,8 @@ impl Client {
         let previous_balance = self.wallet.balance;
 
         self.wallet
-            .add_receiving_transaction(proof, senders_balance_proof, &self.rollup_state)?;
+            .add_receiving_transaction(proof, senders_balance_proof, &self.rollup_state)
+            .await?;
         info!(
             "Previous balance: {}, new balance: {}",
             previous_balance, self.wallet.balance

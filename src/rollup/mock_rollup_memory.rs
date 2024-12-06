@@ -1,11 +1,15 @@
+use std::sync::Arc;
+
 use anyhow::anyhow;
+use async_trait::async_trait;
+use tokio::sync::Mutex;
 
 use crate::{
     errors::CrateResult,
     types::{common::TransferBlock, public_key::AccountTotals, signatures::BlsPublicKey},
 };
 
-use super::traits::{MockRollupStateTrait, RollupStateTrait};
+use super::traits::{AsyncCrateResult, MockRollupStateTrait, RollupStateTrait};
 
 // This is mostly used for test cases
 pub struct MockRollupMemory {
@@ -24,8 +28,9 @@ impl MockRollupMemory {
     }
 }
 
+#[async_trait]
 impl MockRollupStateTrait for MockRollupMemory {
-    fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
+    async fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
         self.deposit_totals
             .entry(pubkey.into())
             .and_modify(|e| *e += amount)
@@ -34,9 +39,9 @@ impl MockRollupStateTrait for MockRollupMemory {
         Ok(())
     }
 
-    fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
-        let deposit_amount = self.get_account_deposit_amount(&pubkey)?;
-        let withdraw_amount = self.get_account_withdraw_amount(&pubkey)?;
+    async fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
+        let deposit_amount = self.get_account_deposit_amount(&pubkey).await?;
+        let withdraw_amount = self.get_account_withdraw_amount(&pubkey).await?;
 
         if deposit_amount < withdraw_amount + amount {
             return Err(anyhow!("Insufficient funds"));
@@ -51,21 +56,39 @@ impl MockRollupStateTrait for MockRollupMemory {
     }
 }
 
+#[async_trait]
 impl RollupStateTrait for MockRollupMemory {
-    fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+    async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
         self.transfer_blocks.push(transfer_block);
 
         Ok(())
     }
-    fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
+    async fn get_withdraw_totals(&self) -> AsyncCrateResult<AccountTotals> {
         Ok(self.withdraw_totals.clone())
     }
 
-    fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
+    async fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
         Ok(self.deposit_totals.clone())
     }
 
-    fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
+    async fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
         Ok(self.transfer_blocks.clone())
     }
 }
+
+// impl RollupStateTrait for Arc<Mutex<MockRollupMemory>> {
+//     async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+//         self.lock().await.add_transfer_block(transfer_block)
+//     }
+//     fn get_withdraw_totals(&self) -> CrateResult<AccountTotals> {
+//         self.lock().unwrap().get_withdraw_totals()
+//     }
+//
+//     fn get_deposit_totals(&self) -> CrateResult<AccountTotals> {
+//         self.lock().unwrap().get_deposit_totals()
+//     }
+//
+//     fn get_transfer_blocks(&self) -> CrateResult<Vec<TransferBlock>> {
+//         self.lock().unwrap().get_transfer_blocks()
+//     }
+// }
