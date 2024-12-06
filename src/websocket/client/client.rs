@@ -90,8 +90,6 @@ impl Client {
             return Err(anyhow!("No proof found for the given root and public key"));
         }
 
-        info!("Sending transaction to receiver");
-        dbg!(self.wallet.balance_proof.clone());
         let message: Message = WsMessage::CSendBatchToReceivers(
             proof.unwrap().clone(),
             self.wallet.balance_proof.clone(),

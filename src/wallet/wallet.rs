@@ -47,6 +47,21 @@ impl Wallet {
         }
     }
 
+    /// All the rollup related logic to keep the wallet in-sync with the rollup state
+    pub async fn new_with_automatic_sync(
+        perist_path: Option<String>,
+        rollup_state: impl RollupStateTrait + Send + Sync + 'static,
+        sync_rate_seconds: u64,
+    ) -> CrateResult<(Arc<Mutex<Wallet>>, JoinHandle<CrateResult<()>>)> {
+        let wallet = Arc::new(Mutex::new(Wallet::new(perist_path)));
+
+        let spawn_handle =
+            Wallet::spawn_automatic_sync_thread(wallet.clone(), rollup_state, sync_rate_seconds)
+                .await?;
+
+        Ok((wallet, spawn_handle))
+    }
+
     /// Core logic of the wallet
     pub fn append_transaction_to_batch(
         &mut self,
@@ -157,7 +172,6 @@ impl Wallet {
     // This is the function that the aggregator will call to get the signature
     // Internally we move the transaction batch to the balance proof because its been accepted
     // by the aggregator
-    // TODO: This should likely move the batch to an uncomfirmed state and then get processed when
     // the client is synced with the contract
     //
     // ! You could validate the inclusion by using the RollupContractTrait, but doesn't seem
@@ -195,26 +209,11 @@ impl Wallet {
             },
             transaction_proof.clone(),
         );
-        // TODO: This should be moved to an uncomfirmed state
+
         self.transaction_batch = TransactionBatch::new(self.public_key);
         self.batch_is_pending = false;
 
         Ok(signature)
-    }
-
-    /// All the rollup related logic to keep the wallet in-sync with the rollup state
-    pub async fn new_with_automatic_sync(
-        perist_path: Option<String>,
-        rollup_state: impl RollupStateTrait + Send + Sync + 'static,
-        sync_rate_seconds: u64,
-    ) -> CrateResult<(Arc<Mutex<Wallet>>, JoinHandle<CrateResult<()>>)> {
-        let wallet = Arc::new(Mutex::new(Wallet::new(perist_path)));
-
-        let spawn_handle =
-            Wallet::spawn_automatic_sync_thread(wallet.clone(), rollup_state, sync_rate_seconds)
-                .await?;
-
-        Ok((wallet, spawn_handle))
     }
 
     async fn spawn_automatic_sync_thread(
@@ -307,7 +306,6 @@ mod tests {
             traits::{MockRollupStateTrait, RollupStateTrait},
         },
         wallet::constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
-        websocket::client::client::Client,
     };
 
     use super::Wallet;

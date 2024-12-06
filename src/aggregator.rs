@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::CrateResult,
+    rollup::traits::RollupStateTrait,
     types::{
         common::{generate_salt, TransferBlock, TransferBlockSignature, U8_32},
         public_key::BlsPublicKeyWrapper,
@@ -47,6 +48,7 @@ pub struct Aggregator {
 
     pub state: AggregatorState,
     pub salt: U8_32,
+    // rollup_state: impl RollupStateTrait + Send,
 }
 
 impl Aggregator {

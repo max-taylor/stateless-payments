@@ -183,6 +183,8 @@ impl ServerState {
             }
         }
 
+        self.connections_with_tx.clear();
+
         // Create a new aggregator now we have finalised
         self.aggregator = Aggregator::new();
 
