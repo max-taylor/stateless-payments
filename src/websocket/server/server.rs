@@ -4,10 +4,11 @@ use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::tungstenite::Error;
 
 use crate::{
-    constants::WEBSOCKET_PORT,
-    errors::CrateResult,
-    server::{connection::handle_connection, server_state::ServerState},
+    constants::WEBSOCKET_PORT, errors::CrateResult,
+    websocket::server::connection::handle_connection,
 };
+
+use super::server_state::ServerState;
 
 pub async fn run_aggregator_server() -> CrateResult<()> {
     let server_state = Arc::new(Mutex::new(ServerState::new()?));

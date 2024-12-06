@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use log::info;
-use stateless_bitcoin_l2::{client::client::Client, errors::CrateResult};
+use stateless_bitcoin_l2::{errors::CrateResult, websocket::client::client::Client};
 use tokio::{
     io::{self, AsyncBufReadExt, AsyncWriteExt},
     sync::Mutex,

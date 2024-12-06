@@ -1,17 +1,16 @@
 #![allow(dead_code)]
 
 use errors::CrateResult;
-use server::server::run_aggregator_server;
 use tokio;
+use websocket::server::server::run_aggregator_server;
 
 mod aggregator;
-mod client;
 mod constants;
 mod errors;
 mod rollup;
-mod server;
 mod types;
 mod wallet;
+mod websocket;
 
 #[tokio::main]
 async fn main() -> CrateResult<()> {

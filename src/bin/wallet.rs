@@ -5,12 +5,14 @@ use cli::user_input::spawn_user_input_handler;
 use futures_util::{stream::SplitStream, StreamExt};
 use log::error;
 use stateless_bitcoin_l2::{
-    client::client::Client,
     constants::WEBSOCKET_PORT,
     errors::CrateResult,
     rollup::mock_rollup_fs::MockRollupFS,
-    server::{utils::parse_ws_message, ws_message::WsMessage},
     wallet::wallet::Wallet,
+    websocket::{
+        client::client::Client,
+        ws_message::{parse_ws_message, WsMessage},
+    },
 };
 use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};

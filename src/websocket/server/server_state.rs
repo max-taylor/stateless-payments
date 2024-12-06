@@ -15,9 +15,8 @@ use crate::{
         signatures::{BlsPublicKey, BlsSignature},
         transaction::{TransactionBatch, TransactionProof},
     },
+    websocket::ws_message::WsMessage,
 };
-
-use super::ws_message::WsMessage;
 
 pub struct Connection {
     pub public_key: BlsPublicKey,

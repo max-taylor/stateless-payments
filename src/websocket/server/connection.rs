@@ -7,14 +7,14 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::{
     errors::CrateResult,
-    server::{
-        server_state::{Connection, ServerState},
-        utils::parse_ws_message,
-    },
     types::signatures::BlsPublicKey,
+    websocket::{
+        server::server_state::Connection,
+        ws_message::{parse_ws_message, WsMessage},
+    },
 };
 
-use super::ws_message::WsMessage;
+use super::server_state::ServerState;
 
 struct ConnectionGuard {
     public_key: BlsPublicKey,

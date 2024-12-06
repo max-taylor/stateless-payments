@@ -1,5 +1,8 @@
+use anyhow::anyhow;
 use serde::{ser::Error, Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
+
+use crate::errors::CrateResult;
 
 use crate::types::{
     balance::BalanceProof,
@@ -7,6 +10,16 @@ use crate::types::{
     signatures::{BlsPublicKey, BlsSignature},
     transaction::{TransactionBatch, TransactionProof},
 };
+
+pub fn parse_ws_message(msg: Message) -> CrateResult<WsMessage> {
+    if msg.is_text() {
+        Ok(msg.try_into()?)
+    } else if msg.is_close() {
+        Err(tokio_tungstenite::tungstenite::Error::ConnectionClosed.into())
+    } else {
+        Err(anyhow!("Invalid message type"))
+    }
+}
 
 // The WsMessage enum is used to represent the different types of messages that can be sent over the WebSocket connection.
 #[derive(Debug, Serialize, Deserialize)]

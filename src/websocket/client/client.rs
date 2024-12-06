@@ -7,13 +7,13 @@ use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use crate::{
     errors::CrateResult,
     rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
-    server::ws_message::WsMessage,
     types::{
         balance::{BalanceProof, BalanceProofKey},
         common::U8_32,
         transaction::TransactionProof,
     },
     wallet::wallet::Wallet,
+    websocket::ws_message::WsMessage,
 };
 
 #[derive(Debug)]
