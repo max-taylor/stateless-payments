@@ -82,7 +82,7 @@ impl MockRollupFS {
 
 #[async_trait]
 impl MockRollupStateTrait for MockRollupFS {
-    async fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
+    async fn add_deposit(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
         let mut state = MockRollupFS::read_state_from_fs()?;
 
         state

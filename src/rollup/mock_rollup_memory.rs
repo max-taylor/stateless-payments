@@ -11,6 +11,7 @@ use crate::{
 
 use super::traits::{MockRollupStateTrait, RollupStateTrait};
 
+#[derive(Debug, Clone)]
 // This is mostly used for test cases
 pub struct MockRollupMemory {
     pub withdraw_totals: AccountTotals,
@@ -30,7 +31,7 @@ impl MockRollupMemory {
 
 #[async_trait]
 impl MockRollupStateTrait for MockRollupMemory {
-    async fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()> {
+    async fn add_deposit(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
         self.deposit_totals
             .entry(pubkey.into())
             .and_modify(|e| *e += amount)
@@ -39,6 +40,7 @@ impl MockRollupStateTrait for MockRollupMemory {
         Ok(())
     }
 
+    // TODO: This also needs the balance proof of the user
     async fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
         let deposit_amount = self.get_account_deposit_amount(&pubkey).await?;
         let withdraw_amount = self.get_account_withdraw_amount(&pubkey).await?;
@@ -53,6 +55,17 @@ impl MockRollupStateTrait for MockRollupMemory {
             .or_insert(amount);
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl MockRollupStateTrait for Arc<Mutex<MockRollupMemory>> {
+    async fn add_deposit(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
+        self.lock().await.add_deposit(pubkey, amount).await
+    }
+
+    async fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()> {
+        self.lock().await.add_withdraw(pubkey, amount).await
     }
 }
 

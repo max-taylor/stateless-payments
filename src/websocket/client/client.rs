@@ -7,9 +7,10 @@ use futures_util::{
 };
 use log::{error, info};
 use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::{
+    constants::WEBSOCKET_PORT,
     errors::CrateResult,
     rollup::traits::RollupStateTrait,
     types::{
@@ -22,6 +23,8 @@ use crate::{
     websocket::ws_message::{parse_ws_message, WsMessage},
 };
 
+use super::constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS;
+
 #[derive(Debug)]
 pub struct Client {
     pub wallet: Wallet,
@@ -32,12 +35,12 @@ impl Client {
     pub async fn new(
         wallet: Wallet,
         rollup_state: impl RollupStateTrait + Send + Clone + Sync + 'static,
-        socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
     ) -> CrateResult<(
         Arc<Mutex<Self>>,
         JoinHandle<CrateResult<()>>,
         JoinHandle<CrateResult<()>>,
     )> {
+        let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", WEBSOCKET_PORT)).await?;
         let (mut ws_send, ws_receive) = socket.split();
 
         // Register the wallet's public key with the server
@@ -46,8 +49,12 @@ impl Client {
 
         let client = Arc::new(Mutex::new(Self { wallet, ws_send }));
 
-        let automatic_sync_handler =
-            Self::spawn_automatic_sync_thread(client.clone(), rollup_state.clone(), 10).await?;
+        let automatic_sync_handler = Self::spawn_automatic_sync_thread(
+            client.clone(),
+            rollup_state.clone(),
+            TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
+        )
+        .await?;
 
         let ws_receive_handler =
             Self::spawn_ws_receive_handler(client.clone(), ws_receive, rollup_state);
@@ -251,39 +258,70 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    use crate::rollup::mock_rollup_memory::MockRollupMemory;
+    use crate::rollup::traits::MockRollupStateTrait;
+    use crate::websocket::client::constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS;
+    use crate::websocket::server::server_state::{ServerState, SingletonServer};
+
     use super::*;
-    use tokio::net::TcpListener;
-    use tokio_tungstenite::accept_async;
-    use tokio_tungstenite::tungstenite::protocol::WebSocket;
 
-    // async fn create_mock_websocket_stream() -> WebSocket<MaybeTlsStream<TcpStream>> {
-    //     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    //     let addr = listener.local_addr().unwrap();
-    //
-    //     tokio::spawn(async move {
-    //         let (stream, _) = listener.accept().await.unwrap();
-    //         let _ = accept_async(stream).await.unwrap();
-    //     });
-    //
-    //     let stream = TcpStream::connect(addr).await.unwrap();
-    //     let (ws_stream, _) = tokio_tungstenite::client_async("ws://localhost", stream)
-    //         .await
-    //         .unwrap();
-    //
-    //     ws_stream
-    // }
+    async fn setup() -> CrateResult<(
+        Arc<Mutex<ServerState>>,
+        Arc<Mutex<Client>>,
+        Arc<Mutex<MockRollupMemory>>,
+    )> {
+        let (server, _) = SingletonServer::get_instance().await?;
+        // Delay 1s to allow the server to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // #[tokio::test]
-    // async fn test_client_new() {
-    //     let wallet = Wallet::new(); // Assuming you have a Wallet::new() method
-    //                                 // let rollup_state = MockRollupState::new(); // Assuming you have a MockRollupState
-    //
-    //     // let socket = create_mock_websocket_stream().await;
-    //
-    //     let result = Client::new(wallet, rollup_state, socket).await;
-    //
-    //     assert!(result.is_ok());
-    // }
+        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
+        let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone()).await?;
+
+        Ok((server.clone(), client, rollup_state))
+    }
+
+    const SLEEP_TIME_SECONDS: u64 = TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS + 1;
+
+    #[tokio::test]
+    async fn test_client_auto_syncs_deposits() -> CrateResult<()> {
+        let (_, client, mut rollup_state) = setup().await?;
+
+        let client_public_key = client.lock().await.wallet.public_key.clone();
+
+        rollup_state.add_deposit(&client_public_key, 100).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+
+        let client_balance = client.lock().await.wallet.balance;
+
+        assert_eq!(client_balance, 100);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_client_auto_syncs_withdraws() -> CrateResult<()> {
+        let (_, client, mut rollup_state) = setup().await?;
+
+        let client_public_key = client.lock().await.wallet.public_key.clone();
+
+        rollup_state.add_deposit(&client_public_key, 100).await?;
+        rollup_state.add_withdraw(&client_public_key, 50).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+
+        let client_balance = client.lock().await.wallet.balance;
+
+        assert_eq!(client_balance, 50);
+
+        Ok(())
+    }
+
+    // TODO: Move to end to end testss
+    #[tokio::test]
+    async fn test_client_auto_syncs_transfers_and_contacts_receiver() -> CrateResult<()> {
+        Ok(())
+    }
 
     // Add more tests as needed
 }

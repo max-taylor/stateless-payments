@@ -1,18 +1,13 @@
 use log::*;
 use std::sync::Arc;
-use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
-use tokio_tungstenite::tungstenite::Error;
+use tokio::{sync::Mutex, task::JoinHandle};
 
-use crate::{
-    constants::WEBSOCKET_PORT, errors::CrateResult,
-    websocket::server::connection::handle_connection,
-};
+use crate::errors::CrateResult;
 
 use super::server_state::ServerState;
 
 pub async fn run_aggregator_server() -> CrateResult<()> {
-    let server_state = Arc::new(Mutex::new(ServerState::new()?));
-    let websocket_server = spawn_websocket_server(server_state.clone());
+    let (server_state, websocket_server) = ServerState::new_with_ws_server().await?;
     let block_producer = spawn_block_producer(server_state.clone());
 
     // Combine the two tasks into one
@@ -29,41 +24,6 @@ pub async fn run_aggregator_server() -> CrateResult<()> {
     }
 
     Ok(())
-}
-
-pub fn spawn_websocket_server(
-    server_state: Arc<Mutex<ServerState>>,
-) -> JoinHandle<CrateResult<()>> {
-    tokio::spawn(async move {
-        let addr = format!("127.0.0.1:{}", WEBSOCKET_PORT);
-        let listener = TcpListener::bind(&addr).await?;
-        info!("Listening on: {}", addr);
-
-        loop {
-            let listener_value = listener.accept().await;
-
-            let server_state = server_state.clone();
-
-            if let Err(e) = listener_value {
-                error!("Error accepting connection: {}", e);
-                continue;
-            }
-
-            let (stream, socket_addr) = listener_value?;
-
-            tokio::spawn(async move {
-                if let Err(e) = handle_connection(socket_addr, stream, server_state).await {
-                    let custom_error = e.downcast_ref::<Error>();
-                    match custom_error {
-                        Some(Error::ConnectionClosed) => {
-                            info!("Connection closed: {}", socket_addr);
-                        }
-                        _ => error!("Error handling connection: {}", e),
-                    }
-                }
-            });
-        }
-    })
 }
 
 fn spawn_block_producer(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<CrateResult<()>> {

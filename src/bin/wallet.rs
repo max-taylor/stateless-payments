@@ -1,12 +1,10 @@
 use cli::user_input::spawn_user_input_handler;
 use stateless_bitcoin_l2::{
-    constants::WEBSOCKET_PORT,
     errors::CrateResult,
     rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
     wallet::wallet::Wallet,
     websocket::client::{client::Client, constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS},
 };
-use tokio_tungstenite::connect_async;
 
 mod cli;
 
@@ -15,15 +13,14 @@ async fn main() -> CrateResult<()> {
     env_logger::init();
 
     let mut rollup_state = MockRollupFS::new()?;
-    let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", WEBSOCKET_PORT)).await?;
     // let (ws_send, ws_receive) = socket.split();
 
     let (client, automatic_sync_handler, ws_receiver_handler) =
-        Client::new(Wallet::new(None), rollup_state.clone(), socket).await?;
+        Client::new(Wallet::new(None), rollup_state.clone()).await?;
 
     {
         let public_key = client.lock().await.wallet.public_key.clone();
-        rollup_state.add_deposit(public_key, 100).await?;
+        rollup_state.add_deposit(&public_key, 100).await?;
 
         // Wait for sync
         tokio::time::sleep(std::time::Duration::from_secs(

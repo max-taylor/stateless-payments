@@ -313,7 +313,7 @@ mod tests {
         let mut client = Wallet::new(None);
         let mut rollup_state = MockRollupMemory::new();
         rollup_state
-            .add_deposit(client.public_key, initial_deposit)
+            .add_deposit(&client.public_key, initial_deposit)
             .await?;
 
         client.sync_rollup_state(&rollup_state).await?;

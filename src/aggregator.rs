@@ -5,7 +5,6 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::CrateResult,
-    rollup::traits::RollupStateTrait,
     types::{
         common::{generate_salt, TransferBlock, TransferBlockSignature, U8_32},
         public_key::BlsPublicKeyWrapper,
@@ -213,7 +212,7 @@ mod tests {
         let mut batches: Vec<TransactionBatch> = vec![];
 
         for account in accounts.iter_mut() {
-            rollup_state.add_deposit(account.public_key, 100).await?;
+            rollup_state.add_deposit(&account.public_key, 100).await?;
             account.sync_rollup_state(&rollup_state).await?;
 
             account.append_transaction_to_batch(receiver.public_key, 100)?;

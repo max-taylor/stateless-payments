@@ -55,7 +55,7 @@ pub trait RollupStateTrait {
 
 #[async_trait]
 pub trait MockRollupStateTrait: RollupStateTrait {
-    async fn add_deposit(&mut self, pubkey: BlsPublicKey, amount: u64) -> CrateResult<()>;
+    async fn add_deposit(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()>;
 
     async fn add_withdraw(&mut self, pubkey: &BlsPublicKey, amount: u64) -> CrateResult<()>;
 }

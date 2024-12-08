@@ -1,8 +1,12 @@
-use std::collections::HashMap;
+use std::{
+    cell::OnceCell,
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 
 use futures_util::{stream::SplitSink, SinkExt};
 use log::{error, info, warn};
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
 use crate::{
@@ -17,6 +21,8 @@ use crate::{
     },
     websocket::ws_message::WsMessage,
 };
+
+use super::connection::spawn_websocket_server;
 
 pub struct Connection {
     pub public_key: BlsPublicKey,
@@ -40,6 +46,13 @@ impl ServerState {
             connections_with_tx: HashMap::new(),
             rollup_state: MockRollupFS::new()?,
         })
+    }
+
+    pub async fn new_with_ws_server(
+    ) -> CrateResult<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> {
+        let server_state = Arc::new(Mutex::new(ServerState::new()?));
+        let websocket_server = spawn_websocket_server(server_state.clone());
+        Ok((server_state, websocket_server))
     }
 
     pub fn add_connection(&mut self, connection: Connection) {
@@ -189,5 +202,26 @@ impl ServerState {
         self.aggregator = Aggregator::new();
 
         Ok(())
+    }
+}
+
+// Define the singleton outside the `impl` block
+static SERVER_INSTANCE: OnceLock<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> =
+    OnceLock::new();
+
+// Singleton Server Implementation
+pub struct SingletonServer;
+
+impl SingletonServer {
+    pub async fn get_instance(
+    ) -> CrateResult<&'static (Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> {
+        match SERVER_INSTANCE.get() {
+            Some(instance) => return Ok(instance),
+            None => {
+                let result = ServerState::new_with_ws_server().await?;
+
+                return Ok(SERVER_INSTANCE.get_or_init(|| result));
+            }
+        }
     }
 }

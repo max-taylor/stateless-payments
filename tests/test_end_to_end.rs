@@ -25,7 +25,7 @@ async fn test_flow() -> CrateResult<()> {
         let mut client = Wallet::new(None);
         let amount = calculate_total_for_account(idx, amount_to_increment);
         rollup_state
-            .add_deposit(client.public_key, amount.try_into().unwrap())
+            .add_deposit(&client.public_key, amount.try_into().unwrap())
             .await
             .unwrap();
         client.sync_rollup_state(&rollup_state).await.unwrap();

@@ -2,10 +2,15 @@ use anyhow::anyhow;
 use futures_util::StreamExt;
 use log::*;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{net::TcpStream, sync::Mutex, task};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Mutex,
+    task::{self, JoinHandle},
+};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::{
+    constants::WEBSOCKET_PORT,
     errors::CrateResult,
     types::signatures::BlsPublicKey,
     websocket::{
@@ -15,6 +20,41 @@ use crate::{
 };
 
 use super::server_state::ServerState;
+
+pub fn spawn_websocket_server(
+    server_state: Arc<Mutex<ServerState>>,
+) -> JoinHandle<CrateResult<()>> {
+    tokio::spawn(async move {
+        let addr = format!("127.0.0.1:{}", WEBSOCKET_PORT);
+        let listener = TcpListener::bind(&addr).await?;
+        info!("Listening on: {}", addr);
+
+        loop {
+            let listener_value = listener.accept().await;
+
+            let server_state = server_state.clone();
+
+            if let Err(e) = listener_value {
+                error!("Error accepting connection: {}", e);
+                continue;
+            }
+
+            let (stream, socket_addr) = listener_value?;
+
+            tokio::spawn(async move {
+                if let Err(e) = handle_connection(socket_addr, stream, server_state).await {
+                    let custom_error = e.downcast_ref::<tokio_tungstenite::tungstenite::Error>();
+                    match custom_error {
+                        Some(tokio_tungstenite::tungstenite::Error::ConnectionClosed) => {
+                            info!("Connection closed: {}", socket_addr);
+                        }
+                        _ => error!("Error handling connection: {}", e),
+                    }
+                }
+            });
+        }
+    })
+}
 
 struct ConnectionGuard {
     public_key: BlsPublicKey,
