@@ -10,7 +10,6 @@ use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle, time::timeout};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::{
-    constants::WEBSOCKET_PORT,
     errors::CrateResult,
     rollup::traits::RollupStateTrait,
     types::{
@@ -35,12 +34,13 @@ impl Client {
     pub async fn new(
         wallet: Wallet,
         rollup_state: impl RollupStateTrait + Send + Clone + Sync + 'static,
+        port: u16,
     ) -> CrateResult<(
         Arc<Mutex<Self>>,
         JoinHandle<CrateResult<()>>,
         JoinHandle<CrateResult<()>>,
     )> {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", WEBSOCKET_PORT)).await?;
+        let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", port)).await?;
         let (mut ws_send, ws_receive) = socket.split();
 
         // Register the wallet's public key with the server
@@ -262,7 +262,7 @@ mod tests {
     use crate::rollup::mock_rollup_memory::MockRollupMemory;
     use crate::rollup::traits::MockRollupStateTrait;
     use crate::websocket::client::constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS;
-    use crate::websocket::server::server_state::{ServerState, SingletonServer};
+    use crate::websocket::server::server_state::ServerState;
 
     use super::*;
 
@@ -271,12 +271,12 @@ mod tests {
         Arc<Mutex<Client>>,
         Arc<Mutex<MockRollupMemory>>,
     )> {
-        let (server, _) = SingletonServer::get_instance().await?;
+        let (server, _, port) = ServerState::new_with_ws_server(None).await?;
         // Delay 1s to allow the server to start
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
-        let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone()).await?;
+        let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone(), port).await?;
 
         Ok((server.clone(), client, rollup_state))
     }

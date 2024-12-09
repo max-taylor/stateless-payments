@@ -10,7 +10,6 @@ use tokio::{
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::{
-    constants::WEBSOCKET_PORT,
     errors::CrateResult,
     types::signatures::BlsPublicKey,
     websocket::{
@@ -21,12 +20,14 @@ use crate::{
 
 use super::server_state::ServerState;
 
-pub fn spawn_websocket_server(
+pub async fn spawn_websocket_server(
     server_state: Arc<Mutex<ServerState>>,
-) -> JoinHandle<CrateResult<()>> {
-    tokio::spawn(async move {
-        let addr = format!("127.0.0.1:{}", WEBSOCKET_PORT);
-        let listener = TcpListener::bind(&addr).await?;
+    port: Option<u16>,
+) -> CrateResult<(JoinHandle<CrateResult<()>>, u16)> {
+    let addr = format!("127.0.0.1:{}", port.unwrap_or(0));
+    let listener = TcpListener::bind(&addr).await?;
+    let port = listener.local_addr().unwrap().port();
+    let handler = tokio::spawn(async move {
         info!("Listening on: {}", addr);
 
         loop {
@@ -53,7 +54,9 @@ pub fn spawn_websocket_server(
                 }
             });
         }
-    })
+    });
+
+    Ok((handler, port))
 }
 
 struct ConnectionGuard {

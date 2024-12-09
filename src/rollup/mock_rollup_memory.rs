@@ -72,6 +72,7 @@ impl MockRollupStateTrait for Arc<Mutex<MockRollupMemory>> {
 #[async_trait]
 impl RollupStateTrait for MockRollupMemory {
     async fn add_transfer_block(&mut self, transfer_block: TransferBlock) -> CrateResult<()> {
+        dbg!(&transfer_block);
         self.transfer_blocks.push(transfer_block);
 
         Ok(())

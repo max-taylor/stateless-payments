@@ -1,9 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
-use futures_util::{sink::Close, stream::SplitSink, SinkExt};
+use futures_util::{stream::SplitSink, SinkExt};
 use log::{error, info, warn};
 use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
@@ -48,10 +45,11 @@ impl ServerState {
     }
 
     pub async fn new_with_ws_server(
-    ) -> CrateResult<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> {
+        port: Option<u16>,
+    ) -> CrateResult<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>, u16)> {
         let server_state = Arc::new(Mutex::new(ServerState::new()?));
-        let websocket_server = spawn_websocket_server(server_state.clone());
-        Ok((server_state, websocket_server))
+        let (websocket_server, port) = spawn_websocket_server(server_state.clone(), port).await?;
+        Ok((server_state, websocket_server, port))
     }
 
     pub fn add_connection(&mut self, connection: Connection) {
@@ -215,26 +213,26 @@ impl ServerState {
     }
 }
 
-// This is used in testing so that we can have a single instance of the server and prevent multiple instances from being created
-static SERVER_INSTANCE: OnceLock<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> =
-    OnceLock::new();
-
-// Singleton Server Implementation
-pub struct SingletonServer;
-
-impl SingletonServer {
-    pub async fn get_instance(
-    ) -> CrateResult<&'static (Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> {
-        match SERVER_INSTANCE.get() {
-            Some(instance) => return Ok(instance),
-            None => {
-                let result = ServerState::new_with_ws_server().await?;
-
-                return Ok(SERVER_INSTANCE.get_or_init(|| result));
-            }
-        }
-    }
-}
+// // This is used in testing so that we can have a single instance of the server and prevent multiple instances from being created
+// static SERVER_INSTANCE: OnceLock<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> =
+//     OnceLock::new();
+//
+// // Singleton Server Implementation
+// pub struct SingletonServer;
+//
+// impl SingletonServer {
+//     pub async fn get_instance(
+//     ) -> CrateResult<&'static (Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> {
+//         match SERVER_INSTANCE.get() {
+//             Some(instance) => return Ok(instance),
+//             None => {
+//                 let result = ServerState::new_with_ws_server().await?;
+//
+//                 return Ok(SERVER_INSTANCE.get_or_init(|| result));
+//             }
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -243,23 +241,30 @@ mod tests {
     use tokio::sync::Mutex;
 
     use crate::{
-        errors::CrateResult, rollup::mock_rollup_memory::MockRollupMemory, wallet::wallet::Wallet,
-        websocket::client::client::Client,
+        errors::CrateResult,
+        rollup::{
+            mock_rollup_memory::MockRollupMemory,
+            traits::{MockRollupStateTrait, RollupStateTrait},
+        },
+        wallet::wallet::Wallet,
+        websocket::client::{
+            client::Client, constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
+        },
     };
 
-    use super::{ServerState, SingletonServer};
+    use super::ServerState;
 
     async fn setup() -> CrateResult<(
         Arc<Mutex<ServerState>>,
         Arc<Mutex<Client>>,
         Arc<Mutex<MockRollupMemory>>,
     )> {
-        let (server, _) = SingletonServer::get_instance().await?;
+        let (server, _, port) = ServerState::new_with_ws_server(None).await?;
         // Delay 1s to allow the server to start
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
-        let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone()).await?;
+        let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone(), port).await?;
 
         Ok((server.clone(), client, rollup_state))
     }
@@ -286,25 +291,127 @@ mod tests {
         Ok(())
     }
 
+    const SLEEP_TIME_SECONDS: u64 = TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS + 1;
+
     #[tokio::test]
     async fn test_add_batch() -> CrateResult<()> {
-        // Test the batch is addeed to the aggregator
-        // Test the connection is added to the connections_with_tx
+        let (server, client, mut rollup_state) = setup().await?;
+        let receiver = Wallet::new(None);
+        let client_public_key = client.lock().await.wallet.public_key.clone();
+        rollup_state.add_deposit(&client_public_key, 100).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+        client
+            .lock()
+            .await
+            .wallet
+            .append_transaction_to_batch(receiver.public_key, 10)?;
+
+        let batch = client.lock().await.wallet.produce_batch()?;
+
+        server.lock().await.add_batch(&batch)?;
+
+        assert_eq!(server.lock().await.aggregator.tx_hash_to_metadata.len(), 1);
+
+        assert_eq!(
+            server
+                .lock()
+                .await
+                .connections_with_tx
+                .get(&client_public_key.into())
+                .is_some(),
+            true
+        );
         Ok(())
     }
 
     #[tokio::test]
     async fn test_add_signature() -> CrateResult<()> {
-        // Test the signature is added to the aggregator
-        // Test the connection is updated in the connections_with_tx
+        let (server, client, mut rollup_state) = setup().await?;
+        let receiver = Wallet::new(None);
+        let client_public_key = client.lock().await.wallet.public_key.clone();
+        rollup_state.add_deposit(&client_public_key, 100).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+        client
+            .lock()
+            .await
+            .wallet
+            .append_transaction_to_batch(receiver.public_key, 10)?;
+
+        let batch = client.lock().await.wallet.produce_batch()?;
+
+        server.lock().await.add_batch(&batch)?;
+
+        server.lock().await.start_collecting_signatures().await?;
+
+        let proof = server
+            .lock()
+            .await
+            .aggregator
+            .generate_proof_for_pubkey(&client_public_key)?;
+
+        let signature = client.lock().await.wallet.validate_and_sign_proof(&proof)?;
+
+        server
+            .lock()
+            .await
+            .add_signature(&client_public_key, &signature)?;
+
+        assert_eq!(
+            server
+                .lock()
+                .await
+                .connections_with_tx
+                .get(&client_public_key.into()),
+            Some(&true)
+        );
+
         Ok(())
     }
 
     #[tokio::test]
     async fn test_finalise() -> CrateResult<()> {
-        // Test the transfer block is added to rollup state
-        // Test connection_with_tx is cleared
-        // Test aggregator is reset
+        let (server, client, mut rollup_state) = setup().await?;
+        let receiver = Wallet::new(None);
+        let client_public_key = client.lock().await.wallet.public_key.clone();
+        rollup_state.add_deposit(&client_public_key, 100).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
+        client
+            .lock()
+            .await
+            .wallet
+            .append_transaction_to_batch(receiver.public_key, 10)?;
+
+        let batch = client.lock().await.wallet.produce_batch()?;
+
+        server.lock().await.add_batch(&batch)?;
+
+        server.lock().await.start_collecting_signatures().await?;
+
+        let proof = server
+            .lock()
+            .await
+            .aggregator
+            .generate_proof_for_pubkey(&client_public_key)?;
+
+        let signature = client.lock().await.wallet.validate_and_sign_proof(&proof)?;
+
+        server
+            .lock()
+            .await
+            .add_signature(&client_public_key, &signature)?;
+
+        server.lock().await.finalise().await?;
+
+        assert_eq!(server.lock().await.aggregator.tx_hash_to_metadata.len(), 0);
+        assert_eq!(
+            server.lock().await.connections_with_tx.len(),
+            0,
+            "Connections with tx should be empty"
+        );
+        assert_eq!(rollup_state.get_transfer_blocks().await?.len(), 1);
         Ok(())
     }
 

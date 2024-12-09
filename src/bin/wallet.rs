@@ -1,5 +1,6 @@
 use cli::user_input::spawn_user_input_handler;
 use stateless_bitcoin_l2::{
+    constants::WEBSOCKET_PORT,
     errors::CrateResult,
     rollup::{mock_rollup_fs::MockRollupFS, traits::MockRollupStateTrait},
     wallet::wallet::Wallet,
@@ -16,7 +17,7 @@ async fn main() -> CrateResult<()> {
     // let (ws_send, ws_receive) = socket.split();
 
     let (client, automatic_sync_handler, ws_receiver_handler) =
-        Client::new(Wallet::new(None), rollup_state.clone()).await?;
+        Client::new(Wallet::new(None), rollup_state.clone(), WEBSOCKET_PORT).await?;
 
     {
         let public_key = client.lock().await.wallet.public_key.clone();
