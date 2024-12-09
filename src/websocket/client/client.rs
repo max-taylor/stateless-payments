@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use futures_util::{
@@ -6,7 +6,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use log::{error, info};
-use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
+use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle, time::timeout};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::{
@@ -90,6 +90,7 @@ impl Client {
         Ok(())
     }
 
+    // TODO: TO be removed
     pub async fn finalise_batch(&mut self, root: U8_32) -> CrateResult<()> {
         info!("Finalising batch with root: {:?}", root);
 
@@ -249,11 +250,11 @@ impl Client {
         })
     }
 
-    // pub async fn shutdown(&mut self) -> CrateResult<()> {
-    //     self.ws_send.close(None).await?;
-    //
-    //     Ok(())
-    // }
+    pub async fn shutdown(&mut self) -> CrateResult<()> {
+        let _ = timeout(Duration::from_secs(2), self.ws_send.close()).await;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -317,7 +318,7 @@ mod tests {
         Ok(())
     }
 
-    // TODO: Move to end to end testss
+    // TODO: Move to end to end tests
     #[tokio::test]
     async fn test_client_auto_syncs_transfers_and_contacts_receiver() -> CrateResult<()> {
         Ok(())

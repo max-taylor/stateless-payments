@@ -33,7 +33,12 @@ fn spawn_block_producer(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<Cra
 
             // Start collecting signatures, only if there are transactions
             // The method returns None if there are no transactions
-            match server_state.lock().await.start_collecing_signatures().await {
+            match server_state
+                .lock()
+                .await
+                .start_collecting_signatures()
+                .await
+            {
                 Ok(value) => {
                     if value.is_none() {
                         info!("No transactions to start collecting signatures for");

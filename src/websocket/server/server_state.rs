@@ -1,10 +1,9 @@
 use std::{
-    cell::OnceCell,
     collections::HashMap,
     sync::{Arc, OnceLock},
 };
 
-use futures_util::{stream::SplitSink, SinkExt};
+use futures_util::{sink::Close, stream::SplitSink, SinkExt};
 use log::{error, info, warn};
 use tokio::{net::TcpStream, sync::Mutex, task::JoinHandle};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
@@ -60,11 +59,21 @@ impl ServerState {
             .insert(connection.public_key.clone().into(), connection);
     }
 
-    pub fn remove_connection(&mut self, public_key: &BlsPublicKey) {
-        self.connections.remove(&public_key.into());
+    pub async fn remove_connection(&mut self, public_key: &BlsPublicKey) -> CrateResult<()> {
+        match self.connections.get_mut(&public_key.into()) {
+            Some(connection) => {
+                connection.ws_send.close().await?;
+                self.connections.remove(&public_key.into());
+            }
+            None => {
+                println!("No connection with tx for public key: {:?}", public_key);
+            }
+        };
+
+        Ok(())
     }
 
-    pub async fn start_collecing_signatures(&mut self) -> CrateResult<Option<()>> {
+    pub async fn start_collecting_signatures(&mut self) -> CrateResult<Option<()>> {
         if self.aggregator.tx_hash_to_metadata.len() == 0 {
             return Ok(None);
         }
@@ -178,6 +187,7 @@ impl ServerState {
             .add_transfer_block(transfer_block.clone())
             .await?;
 
+        // TODO: Will be removed
         for (connection, _) in self.connections_with_tx.iter() {
             match self.connections.get_mut(connection) {
                 Some(connection) => {
@@ -205,7 +215,7 @@ impl ServerState {
     }
 }
 
-// Define the singleton outside the `impl` block
+// This is used in testing so that we can have a single instance of the server and prevent multiple instances from being created
 static SERVER_INSTANCE: OnceLock<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> =
     OnceLock::new();
 
@@ -223,5 +233,85 @@ impl SingletonServer {
                 return Ok(SERVER_INSTANCE.get_or_init(|| result));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::Mutex;
+
+    use crate::{
+        errors::CrateResult, rollup::mock_rollup_memory::MockRollupMemory, wallet::wallet::Wallet,
+        websocket::client::client::Client,
+    };
+
+    use super::{ServerState, SingletonServer};
+
+    async fn setup() -> CrateResult<(
+        Arc<Mutex<ServerState>>,
+        Arc<Mutex<Client>>,
+        Arc<Mutex<MockRollupMemory>>,
+    )> {
+        let (server, _) = SingletonServer::get_instance().await?;
+        // Delay 1s to allow the server to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
+        let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone()).await?;
+
+        Ok((server.clone(), client, rollup_state))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_connection_is_added() -> CrateResult<()> {
+        let (server, client, _) = setup().await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        let public_key = client.lock().await.wallet.public_key.clone();
+        assert_eq!(
+            server
+                .lock()
+                .await
+                .connections
+                .get(&public_key.into())
+                .is_some(),
+            true
+        );
+
+        client.lock().await.shutdown().await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_batch() -> CrateResult<()> {
+        // Test the batch is addeed to the aggregator
+        // Test the connection is added to the connections_with_tx
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_signature() -> CrateResult<()> {
+        // Test the signature is added to the aggregator
+        // Test the connection is updated in the connections_with_tx
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_finalise() -> CrateResult<()> {
+        // Test the transfer block is added to rollup state
+        // Test connection_with_tx is cleared
+        // Test aggregator is reset
+        Ok(())
+    }
+
+    // TODO: End to end test
+    #[tokio::test]
+    async fn test_start_collecting_signatures_gets_signatures_from_clients() -> CrateResult<()> {
+        // Test that the start collecting signatures method sends the correct messages to the clients
+        Ok(())
     }
 }
