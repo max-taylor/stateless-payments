@@ -6,7 +6,7 @@ use crate::{aggregator::Sha256Algorithm, types::common::U8_32};
 
 use super::signatures::BlsPublicKey;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimpleTransaction {
     pub to: BlsPublicKey,
     pub from: BlsPublicKey,
@@ -35,7 +35,7 @@ impl SimpleTransaction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionBatch {
     pub from: BlsPublicKey,
     pub transactions: Vec<SimpleTransaction>,
@@ -59,7 +59,7 @@ impl TransactionBatch {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TransactionProof {
     pub proof_hashes: Vec<U8_32>,
     pub root: U8_32,

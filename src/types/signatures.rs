@@ -85,3 +85,32 @@ impl<'de> Deserialize<'de> for BlsSignatureWrapper {
         Ok(BlsSignatureWrapper(BlsSignature::MessageAugmentation(key)))
     }
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BlsSecretKeyWrapper(pub BlsSecretKey);
+
+impl Into<BlsSecretKey> for BlsSecretKeyWrapper {
+    fn into(self) -> BlsSecretKey {
+        self.0
+    }
+}
+
+impl From<BlsSecretKey> for BlsSecretKeyWrapper {
+    fn from(secret_key: BlsSecretKey) -> Self {
+        BlsSecretKeyWrapper(secret_key)
+    }
+}
+
+impl<'de> Deserialize<'de> for BlsSecretKeyWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let formatted_string = format!("\"{}\"", s);
+
+        let key: BlsSecretKey =
+            serde_json::from_str(&formatted_string).map_err(serde::de::Error::custom)?;
+        Ok(BlsSecretKeyWrapper(key))
+    }
+}

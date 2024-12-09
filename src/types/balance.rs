@@ -45,9 +45,10 @@ impl<'de> Deserialize<'de> for BalanceProofKey {
             .try_into()
             .map_err(|_| serde::de::Error::custom("Invalid U8_32 length"))?;
         let public_key: BlsPublicKeyWrapper =
-            serde_json::from_str(public_key_str).map_err(serde::de::Error::custom)?;
+            serde_json::from_str(&public_key_str).map_err(serde::de::Error::custom)?;
 
         Ok(Self { root, public_key })
     }
 }
+
 pub type BalanceProof = HashMap<BalanceProofKey, TransactionProof>;

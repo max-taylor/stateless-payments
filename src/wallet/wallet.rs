@@ -1,8 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fs::OpenOptions};
 
 use anyhow::anyhow;
-use log::info;
-use tokio::{sync::Mutex, task::JoinHandle};
+use fs2::FileExt;
+use log::{error, info};
+use serde::{Deserialize, Serialize};
+use serde_json::{from_reader, to_writer};
 
 use crate::{
     errors::CrateResult,
@@ -10,7 +12,7 @@ use crate::{
     types::{
         balance::{BalanceProof, BalanceProofKey},
         common::generate_salt,
-        signatures::{BlsPublicKey, BlsSecretKey, BlsSignature},
+        signatures::{BlsPublicKey, BlsSecretKey, BlsSecretKeyWrapper, BlsSignature},
         transaction::{SimpleTransaction, TransactionBatch, TransactionProof},
     },
 };
@@ -19,47 +21,102 @@ use super::utils::{calculate_balances_and_validate_balance_proof, merge_balance_
 
 #[derive(Debug)]
 pub struct Wallet {
+    pub wallet_name: Option<String>,
     pub public_key: BlsPublicKey,
     private_key: BlsSecretKey,
 
     // Mapping of (Merkle Root, Sender pub key) -> TransactionProof
     pub balance_proof: BalanceProof,
-    // Mapping of Transaction Hash -> Transaction
-    // Use the tx_hash for lookups in this case
-    // pub uncomfirmed_transactions: HashMap<U8_32, SimpleTransaction>,
     pub transaction_batch: TransactionBatch,
     batch_is_pending: bool,
 
     pub balance: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WalletPersistState {
+    pub balance_proof: BalanceProof,
+    pub private_key: BlsSecretKeyWrapper,
+}
+
 impl Wallet {
-    pub fn new(persist_path: Option<String>) -> Wallet {
-        let private_key = BlsSecretKey::new();
+    pub fn new(wallet_name: Option<String>) -> Wallet {
+        let WalletPersistState {
+            balance_proof,
+            private_key,
+        } = match wallet_name.clone() {
+            Some(wallet_name) => Wallet::load_wallet_state(&wallet_name).unwrap(),
+            None => WalletPersistState {
+                balance_proof: HashMap::new(),
+                private_key: BlsSecretKey::new().into(),
+            },
+        };
+
+        let private_key: BlsSecretKey = private_key.into();
 
         Wallet {
+            wallet_name,
             private_key: private_key.clone(),
             public_key: private_key.public_key(),
-            balance_proof: HashMap::new(),
+            balance_proof,
             transaction_batch: TransactionBatch::new(private_key.public_key()),
             batch_is_pending: false,
             balance: 0,
         }
     }
 
-    /// All the rollup related logic to keep the wallet in-sync with the rollup state
-    pub async fn new_with_automatic_sync(
-        perist_path: Option<String>,
-        rollup_state: impl RollupStateTrait + Send + Sync + 'static,
-        sync_rate_seconds: u64,
-    ) -> CrateResult<(Arc<Mutex<Wallet>>, JoinHandle<CrateResult<()>>)> {
-        let wallet = Arc::new(Mutex::new(Wallet::new(perist_path)));
+    fn save_wallet_state(&self) -> CrateResult<()> {
+        if self.wallet_name.is_none() {
+            return Ok(());
+        }
 
-        let spawn_handle =
-            Wallet::spawn_automatic_sync_thread(wallet.clone(), rollup_state, sync_rate_seconds)
-                .await?;
+        let wallet_name = self.wallet_name.as_ref().unwrap();
 
-        Ok((wallet, spawn_handle))
+        let wallet_state = WalletPersistState {
+            balance_proof: self.balance_proof.clone(),
+            private_key: self.private_key.clone().into(),
+        };
+
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(format!("/tmp/{}.json", wallet_name))?;
+
+        file.lock_exclusive()?;
+
+        to_writer(&file, &wallet_state)?;
+
+        file.unlock()?;
+        Ok(())
+    }
+
+    fn load_wallet_state(wallet_name: &str) -> CrateResult<WalletPersistState> {
+        dbg!("Loading wallet state");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(format!("/tmp/{}.json", wallet_name))?;
+
+        file.lock_exclusive()?;
+
+        let state: WalletPersistState = match from_reader(&file) {
+            Ok(state) => state,
+            Err(e) => {
+                println!("Error reading wallet state: {:?}", e);
+                error!("Error reading wallet state: {:?}", e);
+                WalletPersistState {
+                    balance_proof: HashMap::new(),
+                    private_key: BlsSecretKey::new().into(),
+                }
+            }
+        };
+        dbg!(&state);
+
+        file.unlock().expect("Unable to unlock file");
+
+        Ok(state)
     }
 
     /// Core logic of the wallet
@@ -165,6 +222,7 @@ impl Wallet {
 
         self.balance = *current_users_balance;
         self.balance_proof = merged_proof;
+        self.save_wallet_state()?;
 
         Ok(())
     }
@@ -212,57 +270,9 @@ impl Wallet {
 
         self.transaction_batch = TransactionBatch::new(self.public_key);
         self.batch_is_pending = false;
+        self.save_wallet_state()?;
 
         Ok(signature)
-    }
-
-    async fn spawn_automatic_sync_thread(
-        wallet: Arc<Mutex<Wallet>>,
-        rollup_state: impl RollupStateTrait + Send + Sync + 'static,
-        sync_rate_seconds: u64,
-    ) -> CrateResult<JoinHandle<CrateResult<()>>> {
-        wallet.lock().await.sync_rollup_state(&rollup_state).await?;
-
-        #[derive(PartialEq, Eq)]
-        struct SyncState {
-            deposit_total: u64,
-            withdraw_total: u64,
-            total_transfer_blocks: u64,
-        }
-
-        async fn get_sync_state(
-            rollup_state: &(impl RollupStateTrait + Send + Sync),
-            public_key: &BlsPublicKey,
-        ) -> CrateResult<SyncState> {
-            Ok(SyncState {
-                deposit_total: rollup_state.get_account_deposit_amount(public_key).await?,
-                withdraw_total: rollup_state.get_account_withdraw_amount(public_key).await?,
-                total_transfer_blocks: rollup_state
-                    .get_account_transfer_blocks(public_key)
-                    .await?
-                    .len()
-                    .try_into()?,
-            })
-        }
-
-        let public_key = wallet.lock().await.public_key;
-
-        let mut last_sync_state = get_sync_state(&rollup_state, &public_key).await?;
-
-        Ok(tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(sync_rate_seconds)).await;
-
-                let new_sync_state = get_sync_state(&rollup_state, &public_key).await?;
-
-                if new_sync_state != last_sync_state {
-                    let mut wallet = wallet.lock().await;
-                    wallet.sync_rollup_state(&rollup_state).await?;
-                }
-
-                last_sync_state = new_sync_state;
-            }
-        }))
     }
 
     // This is called somewhat intermittently to ensure the client is in sync with the contract
@@ -558,134 +568,40 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_wallet_persisted() -> CrateResult<()> {
-        let client = Wallet::new(Some("wallet.json".to_string()));
+    #[tokio::test]
+    async fn test_wallet_persisted() -> CrateResult<()> {
+        let mut rollup_state = MockRollupMemory::new();
+        let wallet_name = "1".to_string();
+        let mut client = Wallet::new(Some(wallet_name.clone()));
+        rollup_state.add_deposit(&client.public_key, 100).await?;
+        client.sync_rollup_state(&rollup_state).await?;
+
+        let receiver = Wallet::new(None);
         let mut aggregator = Aggregator::new();
+
+        client.append_transaction_to_batch(receiver.public_key, 100)?;
+        let batch = client.produce_batch()?;
+
+        aggregator.add_batch(&batch)?;
+
+        aggregator.start_collecting_signatures()?;
+
+        let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
+
+        // Moves the transaction batch to the balance proof
+        client.validate_and_sign_proof(&merkle_tree_proof)?;
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        let loaded_wallet = Wallet::new(Some(wallet_name));
+
+        dbg!(&loaded_wallet);
+
+        assert_eq!(client.balance_proof, loaded_wallet.balance_proof);
+
+        // Delete the file if it exists to prevent issues with the test
+        std::fs::remove_file("/tmp/1.json").ok();
 
         Ok(())
     }
-    // TODO: MOve tests to client.rs
-    // const DEPOSIT: u64 = 100;
-    // const SLEEP_TIME_SECONDS: u64 = 2;
-    //
-    // async fn setup_auto_sync_tests(
-    // ) -> CrateResult<(Arc<Mutex<MockRollupMemory>>, Arc<Mutex<Wallet>>)> {
-    //     let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
-    //
-    //     let (client, _) = Wallet::new_with_automatic_sync(
-    //         None,
-    //         rollup_state.clone(),
-    //         TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
-    //     )
-    //     .await?;
-    //
-    //     let client_public_key = client.lock().await.public_key;
-    //
-    //     // DEPOSIT
-    //
-    //     rollup_state
-    //         .lock()
-    //         .await
-    //         .add_deposit(client_public_key, DEPOSIT)
-    //         .await?;
-    //
-    //     tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
-    //
-    //     Ok((rollup_state, client))
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_wallet_auto_syncs_deposits() -> CrateResult<()> {
-    //     let (_, client) = setup_auto_sync_tests().await?;
-    //
-    //     assert_eq!(client.lock().await.balance, DEPOSIT);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_wallet_auto_syncs_withdraws() -> CrateResult<()> {
-    //     let (rollup_state, client) = setup_auto_sync_tests().await?;
-    //
-    //     let prev_balance = client.lock().await.balance;
-    //
-    //     let withdraw = 50;
-    //
-    //     rollup_state
-    //         .lock()
-    //         .await
-    //         .add_withdraw(&client.lock().await.public_key, withdraw)
-    //         .await?;
-    //
-    //     tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
-    //
-    //     assert_eq!(client.lock().await.balance, prev_balance - withdraw);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_wallet_auto_syncs_transfers() -> CrateResult<()> {
-    //     let (rollup_state, client) = setup_auto_sync_tests().await?;
-    //
-    //     // TRANSFER
-    //
-    //     let (receiver, _) = Wallet::new_with_automatic_sync(
-    //         None,
-    //         rollup_state.clone(),
-    //         TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS,
-    //     )
-    //     .await?;
-    //
-    //     let mut aggregator = Aggregator::new();
-    //
-    //     let transfer_amount = client.lock().await.balance;
-    //
-    //     client
-    //         .lock()
-    //         .await
-    //         .append_transaction_to_batch(receiver.lock().await.public_key, transfer_amount)?;
-    //
-    //     let batch = client.lock().await.produce_batch()?;
-    //
-    //     aggregator.add_batch(&batch)?;
-    //
-    //     aggregator.start_collecting_signatures()?;
-    //
-    //     let merkle_tree_proof = aggregator.generate_proof_for_pubkey(&batch.from)?;
-    //
-    //     let signature = client
-    //         .lock()
-    //         .await
-    //         .validate_and_sign_proof(&merkle_tree_proof)?;
-    //
-    //     aggregator.add_signature(&client.lock().await.public_key, &signature)?;
-    //
-    //     let transfer_block = aggregator.finalise()?;
-    //
-    //     rollup_state
-    //         .lock()
-    //         .await
-    //         .add_transfer_block(transfer_block)
-    //         .await?;
-    //
-    //     tokio::time::sleep(tokio::time::Duration::from_secs(SLEEP_TIME_SECONDS)).await;
-    //
-    //     assert_eq!(client.lock().await.balance, 0);
-    //
-    //     receiver
-    //         .lock()
-    //         .await
-    //         .add_receiving_transaction(
-    //             &merkle_tree_proof,
-    //             &client.lock().await.balance_proof,
-    //             &rollup_state,
-    //         )
-    //         .await?;
-    //
-    //     assert_eq!(receiver.lock().await.balance, transfer_amount);
-    //
-    //     Ok(())
-    // }
 }

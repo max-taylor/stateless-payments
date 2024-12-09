@@ -13,7 +13,7 @@ use stateless_bitcoin_l2::{
 // array. This goes on recursively until the last account has all the funds.
 // This validates a relatively complex flow of transactions, proofs and dependent transactions.
 #[tokio::test]
-async fn test_flow() -> CrateResult<()> {
+async fn test_aggregator_wallet_flow() -> CrateResult<()> {
     let mut rollup_state = MockRollupMemory::new();
 
     let num_accounts = 10;

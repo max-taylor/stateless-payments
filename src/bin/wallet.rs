@@ -14,7 +14,6 @@ async fn main() -> CrateResult<()> {
     env_logger::init();
 
     let mut rollup_state = MockRollupFS::new()?;
-    // let (ws_send, ws_receive) = socket.split();
 
     let (client, automatic_sync_handler, ws_receiver_handler) =
         Client::new(Wallet::new(None), rollup_state.clone(), WEBSOCKET_PORT).await?;

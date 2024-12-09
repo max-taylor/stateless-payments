@@ -16,7 +16,6 @@ use crate::{
 
 const SYNC_SLEEP_TIME: u64 = TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS + 1;
 
-// TODO: Move to end to end tests
 #[tokio::test]
 async fn test_client_auto_syncs_transfers_and_contacts_receiver() -> CrateResult<()> {
     env_logger::init();
