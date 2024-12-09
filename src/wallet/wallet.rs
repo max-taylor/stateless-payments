@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fs::OpenOptions};
+use std::{
+    collections::HashMap,
+    fs::{create_dir_all, OpenOptions},
+};
 
 use anyhow::anyhow;
 use fs2::FileExt;
@@ -63,60 +66,6 @@ impl Wallet {
             batch_is_pending: false,
             balance: 0,
         }
-    }
-
-    fn save_wallet_state(&self) -> CrateResult<()> {
-        if self.wallet_name.is_none() {
-            return Ok(());
-        }
-
-        let wallet_name = self.wallet_name.as_ref().unwrap();
-
-        let wallet_state = WalletPersistState {
-            balance_proof: self.balance_proof.clone(),
-            private_key: self.private_key.clone().into(),
-        };
-
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(format!("/tmp/{}.json", wallet_name))?;
-
-        file.lock_exclusive()?;
-
-        to_writer(&file, &wallet_state)?;
-
-        file.unlock()?;
-        Ok(())
-    }
-
-    fn load_wallet_state(wallet_name: &str) -> CrateResult<WalletPersistState> {
-        dbg!("Loading wallet state");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(format!("/tmp/{}.json", wallet_name))?;
-
-        file.lock_exclusive()?;
-
-        let state: WalletPersistState = match from_reader(&file) {
-            Ok(state) => state,
-            Err(e) => {
-                println!("Error reading wallet state: {:?}", e);
-                error!("Error reading wallet state: {:?}", e);
-                WalletPersistState {
-                    balance_proof: HashMap::new(),
-                    private_key: BlsSecretKey::new().into(),
-                }
-            }
-        };
-        dbg!(&state);
-
-        file.unlock().expect("Unable to unlock file");
-
-        Ok(state)
     }
 
     /// Core logic of the wallet
@@ -299,6 +248,65 @@ impl Wallet {
         }
 
         Ok(())
+    }
+
+    /// PERISTENCE
+    fn get_wallet_file(wallet_name: &str) -> CrateResult<std::fs::File> {
+        let path = format!("wallet_data/{}.json", wallet_name);
+
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            create_dir_all(parent)?;
+        }
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
+
+        file.lock_exclusive()?;
+
+        Ok(file)
+    }
+
+    fn save_wallet_state(&self) -> CrateResult<()> {
+        if self.wallet_name.is_none() {
+            return Ok(());
+        }
+
+        let wallet_name = self.wallet_name.as_ref().unwrap();
+
+        let wallet_state = WalletPersistState {
+            balance_proof: self.balance_proof.clone(),
+            private_key: self.private_key.clone().into(),
+        };
+
+        let file = Wallet::get_wallet_file(wallet_name)?;
+
+        to_writer(&file, &wallet_state)?;
+
+        file.unlock()?;
+        Ok(())
+    }
+
+    fn load_wallet_state(wallet_name: &str) -> CrateResult<WalletPersistState> {
+        let file = Wallet::get_wallet_file(wallet_name)?;
+
+        let state: WalletPersistState = match from_reader(&file) {
+            Ok(state) => state,
+            Err(e) => {
+                println!("Error reading wallet state: {:?}", e);
+                error!("Error reading wallet state: {:?}", e);
+                WalletPersistState {
+                    balance_proof: HashMap::new(),
+                    private_key: BlsSecretKey::new().into(),
+                }
+            }
+        };
+
+        file.unlock().expect("Unable to unlock file");
+
+        Ok(state)
     }
 }
 
@@ -571,7 +579,7 @@ mod tests {
     #[tokio::test]
     async fn test_wallet_persisted() -> CrateResult<()> {
         let mut rollup_state = MockRollupMemory::new();
-        let wallet_name = "1".to_string();
+        let wallet_name = rand::random::<u64>().to_string();
         let mut client = Wallet::new(Some(wallet_name.clone()));
         rollup_state.add_deposit(&client.public_key, 100).await?;
         client.sync_rollup_state(&rollup_state).await?;
@@ -593,14 +601,12 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-        let loaded_wallet = Wallet::new(Some(wallet_name));
-
-        dbg!(&loaded_wallet);
+        let loaded_wallet = Wallet::new(Some(wallet_name.clone()));
 
         assert_eq!(client.balance_proof, loaded_wallet.balance_proof);
 
         // Delete the file if it exists to prevent issues with the test
-        std::fs::remove_file("/tmp/1.json").ok();
+        std::fs::remove_file(format!("wallet_data/{}.json", wallet_name)).ok();
 
         Ok(())
     }

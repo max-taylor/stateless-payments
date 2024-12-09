@@ -13,7 +13,6 @@ pub struct BlsAggregateSignatureWrapper(pub BlsAggregateSignature);
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Eq)]
 pub struct BlsSignatureWrapper(pub BlsSignature);
 
-// TODO: This requires reparing
 impl<'de> Deserialize<'de> for BlsAggregateSignatureWrapper {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
