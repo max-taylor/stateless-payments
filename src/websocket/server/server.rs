@@ -10,7 +10,7 @@ pub async fn run_aggregator_server() -> CrateResult<()> {
     let rollup_state = MockRollupFS::new()?;
     let (server_state, websocket_server, _) =
         ServerState::new_with_ws_server(rollup_state, Some(WEBSOCKET_PORT)).await?;
-    let block_producer = spawn_block_producer(server_state.clone());
+    let block_producer = spawn_block_producer(server_state.clone(), Some(10));
 
     // Combine the two tasks into one
     // This will allow us to return an error if either of the tasks fail
@@ -28,11 +28,18 @@ pub async fn run_aggregator_server() -> CrateResult<()> {
     Ok(())
 }
 
-fn spawn_block_producer(server_state: Arc<Mutex<ServerState>>) -> JoinHandle<CrateResult<()>> {
+pub fn spawn_block_producer(
+    server_state: Arc<Mutex<ServerState>>,
+    production_delay_seconds: Option<u64>,
+) -> JoinHandle<CrateResult<()>> {
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(
+                production_delay_seconds.unwrap_or(10),
+            ))
+            .await;
 
+            println!("Starting block production");
             // Start collecting signatures, only if there are transactions
             // The method returns None if there are no transactions
             match server_state

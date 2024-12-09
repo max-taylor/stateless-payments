@@ -14,7 +14,7 @@ use crate::{
     rollup::traits::RollupStateTrait,
     types::{
         balance::{BalanceProof, BalanceProofKey},
-        common::U8_32,
+        common::{TransferBlock, U8_32},
         signatures::BlsPublicKey,
         transaction::TransactionProof,
     },
@@ -90,9 +90,8 @@ impl Client {
         Ok(())
     }
 
-    // TODO: TO be removed
-    pub async fn finalise_batch(&mut self, root: U8_32) -> CrateResult<()> {
-        info!("Finalising batch with root: {:?}", root);
+    async fn send_batch_with_root_to_receivers(&mut self, root: U8_32) -> CrateResult<()> {
+        info!("Sending batch {:?} to receivers", root);
 
         let proof = self.wallet.balance_proof.get(&BalanceProofKey {
             root,
@@ -154,7 +153,7 @@ impl Client {
         struct SyncState {
             deposit_total: u64,
             withdraw_total: u64,
-            total_transfer_blocks: u64,
+            transfer_blocks: Vec<TransferBlock>,
         }
 
         let public_key = client.lock().await.wallet.public_key;
@@ -166,11 +165,7 @@ impl Client {
             Ok(SyncState {
                 deposit_total: rollup_state.get_account_deposit_amount(public_key).await?,
                 withdraw_total: rollup_state.get_account_withdraw_amount(public_key).await?,
-                total_transfer_blocks: rollup_state
-                    .get_account_transfer_blocks(public_key)
-                    .await?
-                    .len()
-                    .try_into()?,
+                transfer_blocks: rollup_state.get_account_transfer_blocks(public_key).await?,
             })
         }
 
@@ -182,14 +177,40 @@ impl Client {
 
                 let new_sync_state = get_sync_state(&rollup_state, &public_key).await?;
 
-                // TODO: Update to message all receivers when total transfer blocks change
                 if new_sync_state != last_sync_state {
-                    client
-                        .lock()
-                        .await
-                        .wallet
-                        .sync_rollup_state(&rollup_state)
-                        .await?;
+                    if new_sync_state.transfer_blocks != last_sync_state.transfer_blocks {
+                        info!(
+                            "Detected new transfer blocks, extracting and sending to receivers..."
+                        );
+                        // Find the new transfer blocks
+                        let new_transfer_blocks = new_sync_state
+                            .transfer_blocks
+                            .iter()
+                            .filter(|block| {
+                                !last_sync_state
+                                    .transfer_blocks
+                                    .iter()
+                                    .any(|old_block| old_block == *block)
+                            })
+                            .cloned()
+                            .collect::<Vec<TransferBlock>>();
+
+                        for block in new_transfer_blocks {
+                            client
+                                .lock()
+                                .await
+                                .send_batch_with_root_to_receivers(block.merkle_root)
+                                .await?;
+                        }
+                    } else {
+                        info!("Detected new deposit or withdraw, syncing state...");
+                        client
+                            .lock()
+                            .await
+                            .wallet
+                            .sync_rollup_state(&rollup_state)
+                            .await?;
+                    }
                 }
 
                 last_sync_state = new_sync_state;
@@ -216,13 +237,6 @@ impl Client {
                         .await
                         .validate_sign_proof_send_signature(&proof)
                         .await?;
-                }
-                WsMessage::SFinalised(block) => {
-                    client
-                        .lock()
-                        .await
-                        .finalise_batch(block.merkle_root)
-                        .await?
                 }
                 WsMessage::SReceiveTransaction(proof, balance_proof) => {
                     client
@@ -317,12 +331,4 @@ mod tests {
 
         Ok(())
     }
-
-    // TODO: Move to end to end tests
-    #[tokio::test]
-    async fn test_client_auto_syncs_transfers_and_contacts_receiver() -> CrateResult<()> {
-        Ok(())
-    }
-
-    // Add more tests as needed
 }

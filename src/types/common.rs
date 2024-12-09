@@ -17,7 +17,7 @@ pub fn generate_salt() -> U8_32 {
     StdRng::from_entropy().gen::<U8_32>()
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
 pub enum TransferBlockSignature {
     Aggregated(BlsAggregateSignatureWrapper, Vec<BlsPublicKeyWrapper>),
     Individual(BlsSignatureWrapper, BlsPublicKeyWrapper),
@@ -50,7 +50,7 @@ impl TransferBlockSignature {
 }
 
 // Need to compare TransactionProofs with TransferBlocks to find which roots have been included
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
 pub struct TransferBlock {
     pub signature: TransferBlockSignature,
     pub merkle_root: U8_32,

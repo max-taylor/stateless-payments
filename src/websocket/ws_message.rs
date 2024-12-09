@@ -32,7 +32,6 @@ pub enum WsMessage {
 
     // Messages prefixed with S are sent by the server
     SSendTransactionInclusionProof(TransactionProof),
-    SFinalised(TransferBlock),
     SReceiveTransaction(TransactionProof, BalanceProof),
 }
 

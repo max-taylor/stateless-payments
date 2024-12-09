@@ -294,9 +294,6 @@ impl Wallet {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use tokio::sync::Mutex;
 
     use crate::{
         aggregator::Aggregator,

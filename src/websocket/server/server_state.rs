@@ -8,7 +8,7 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use crate::{
     aggregator::Aggregator,
     errors::CrateResult,
-    rollup::{mock_rollup_fs::MockRollupFS, traits::RollupStateTrait},
+    rollup::traits::RollupStateTrait,
     types::{
         balance::BalanceProof,
         public_key::BlsPublicKeyWrapper,
@@ -189,25 +189,6 @@ impl ServerState {
             .add_transfer_block(transfer_block.clone())
             .await?;
 
-        // TODO: Will be removed
-        for (connection, _) in self.connections_with_tx.iter() {
-            match self.connections.get_mut(connection) {
-                Some(connection) => {
-                    if let Err(e) = connection
-                        .ws_send
-                        .send(WsMessage::SFinalised(transfer_block.clone()).into())
-                        .await
-                    {
-                        // Don't propogate errors here, because we want to continue to send to other connections
-                        error!("Failed to send finalise message: {:?}", e);
-                    }
-                }
-                None => {
-                    warn!("Connection not found for public key: {:?}", connection);
-                }
-            }
-        }
-
         self.connections_with_tx.clear();
 
         // Create a new aggregator now we have finalised
@@ -216,27 +197,6 @@ impl ServerState {
         Ok(())
     }
 }
-
-// // This is used in testing so that we can have a single instance of the server and prevent multiple instances from being created
-// static SERVER_INSTANCE: OnceLock<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> =
-//     OnceLock::new();
-//
-// // Singleton Server Implementation
-// pub struct SingletonServer;
-//
-// impl SingletonServer {
-//     pub async fn get_instance(
-//     ) -> CrateResult<&'static (Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>)> {
-//         match SERVER_INSTANCE.get() {
-//             Some(instance) => return Ok(instance),
-//             None => {
-//                 let result = ServerState::new_with_ws_server().await?;
-//
-//                 return Ok(SERVER_INSTANCE.get_or_init(|| result));
-//             }
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

@@ -8,9 +8,9 @@ pub type BlsSignature = Signature<BlsType>;
 pub type BlsSecretKey = SecretKey<BlsType>;
 pub type BlsAggregateSignature = AggregateSignature<BlsType>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Eq)]
 pub struct BlsAggregateSignatureWrapper(pub BlsAggregateSignature);
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Eq)]
 pub struct BlsSignatureWrapper(pub BlsSignature);
 
 // TODO: This requires reparing
