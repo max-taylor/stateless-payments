@@ -31,23 +31,27 @@ pub struct ServerState {
     // Indexes which connections have transactions, the value is initially false when they send a transaction and then set to true when they send a signature
     connections_with_tx: HashMap<BlsPublicKeyWrapper, bool>,
     aggregator: Aggregator,
-    rollup_state: MockRollupFS,
+    // rollup_state: MockRollupFS,
+    rollup_state: Box<dyn RollupStateTrait + Send + Sync>,
 }
 
 impl ServerState {
-    pub fn new() -> CrateResult<ServerState> {
+    pub fn new(
+        rollup_state: impl RollupStateTrait + Send + Clone + Sync + 'static,
+    ) -> CrateResult<ServerState> {
         Ok(ServerState {
             connections: HashMap::new(),
             aggregator: Aggregator::new(),
             connections_with_tx: HashMap::new(),
-            rollup_state: MockRollupFS::new()?,
+            rollup_state: Box::new(rollup_state),
         })
     }
 
     pub async fn new_with_ws_server(
+        rollup_state: impl RollupStateTrait + Send + Clone + Sync + 'static,
         port: Option<u16>,
     ) -> CrateResult<(Arc<Mutex<ServerState>>, JoinHandle<CrateResult<()>>, u16)> {
-        let server_state = Arc::new(Mutex::new(ServerState::new()?));
+        let server_state = Arc::new(Mutex::new(ServerState::new(rollup_state)?));
         let (websocket_server, port) = spawn_websocket_server(server_state.clone(), port).await?;
         Ok((server_state, websocket_server, port))
     }
@@ -259,11 +263,11 @@ mod tests {
         Arc<Mutex<Client>>,
         Arc<Mutex<MockRollupMemory>>,
     )> {
-        let (server, _, port) = ServerState::new_with_ws_server(None).await?;
+        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
+        let (server, _, port) = ServerState::new_with_ws_server(rollup_state.clone(), None).await?;
         // Delay 1s to allow the server to start
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
         let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone(), port).await?;
 
         Ok((server.clone(), client, rollup_state))
@@ -412,13 +416,6 @@ mod tests {
             "Connections with tx should be empty"
         );
         assert_eq!(rollup_state.get_transfer_blocks().await?.len(), 1);
-        Ok(())
-    }
-
-    // TODO: End to end test
-    #[tokio::test]
-    async fn test_start_collecting_signatures_gets_signatures_from_clients() -> CrateResult<()> {
-        // Test that the start collecting signatures method sends the correct messages to the clients
         Ok(())
     }
 }

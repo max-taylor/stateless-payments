@@ -271,11 +271,11 @@ mod tests {
         Arc<Mutex<Client>>,
         Arc<Mutex<MockRollupMemory>>,
     )> {
-        let (server, _, port) = ServerState::new_with_ws_server(None).await?;
+        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
+        let (server, _, port) = ServerState::new_with_ws_server(rollup_state.clone(), None).await?;
         // Delay 1s to allow the server to start
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-        let rollup_state = Arc::new(Mutex::new(MockRollupMemory::new()));
         let (client, _, _) = Client::new(Wallet::new(None), rollup_state.clone(), port).await?;
 
         Ok((server.clone(), client, rollup_state))

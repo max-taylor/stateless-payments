@@ -2,13 +2,14 @@ use log::*;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::JoinHandle};
 
-use crate::{constants::WEBSOCKET_PORT, errors::CrateResult};
+use crate::{constants::WEBSOCKET_PORT, errors::CrateResult, rollup::mock_rollup_fs::MockRollupFS};
 
 use super::server_state::ServerState;
 
 pub async fn run_aggregator_server() -> CrateResult<()> {
+    let rollup_state = MockRollupFS::new()?;
     let (server_state, websocket_server, _) =
-        ServerState::new_with_ws_server(Some(WEBSOCKET_PORT)).await?;
+        ServerState::new_with_ws_server(rollup_state, Some(WEBSOCKET_PORT)).await?;
     let block_producer = spawn_block_producer(server_state.clone());
 
     // Combine the two tasks into one
