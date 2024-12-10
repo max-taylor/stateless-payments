@@ -8,6 +8,8 @@ The balance proof merging is pretty inefficient, we are simply merging the sende
 
 # Edge-cases
 
+Documenting every edge-case that comes up for full transparency.
+
 ## Withdraw + Transfer double spend
 There may be a weird edge case where:
 - The Wallet class has produced a block, but the new block isn’t written onchain yet
