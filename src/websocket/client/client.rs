@@ -32,7 +32,7 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        wallet: Wallet,
+        mut wallet: Wallet,
         rollup_state: impl RollupStateTrait + Send + Clone + Sync + 'static,
         port: u16,
     ) -> CrateResult<(
@@ -40,6 +40,8 @@ impl Client {
         JoinHandle<CrateResult<()>>,
         JoinHandle<CrateResult<()>>,
     )> {
+        wallet.sync_rollup_state(&rollup_state).await?;
+
         let (socket, _) = connect_async(format!("ws://127.0.0.1:{}", port)).await?;
         let (mut ws_send, ws_receive) = socket.split();
 

@@ -2,7 +2,11 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use log::info;
-use stateless_bitcoin_l2::{errors::CrateResult, websocket::client::client::Client};
+use stateless_bitcoin_l2::{
+    errors::CrateResult,
+    rollup::traits::{MockRollupStateTrait, RollupStateTrait},
+    websocket::client::{client::Client, constants::TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS},
+};
 use tokio::{
     io::{self, AsyncBufReadExt, AsyncWriteExt},
     sync::Mutex,
@@ -16,7 +20,10 @@ use crate::cli::command::Command;
 // It is very intentional about which errors are propogated and which aren't
 // This is because we want to keep the CLI running when we encounter non-fatal errors, such as bad
 // inputs
-pub fn spawn_user_input_handler(client: Arc<Mutex<Client>>) -> JoinHandle<CrateResult<()>> {
+pub fn spawn_user_input_handler(
+    client: Arc<Mutex<Client>>,
+    rollup_state: impl RollupStateTrait + MockRollupStateTrait + Sync + Send + Copy + 'static,
+) -> JoinHandle<CrateResult<()>> {
     tokio::spawn(async move {
         let stdin = io::stdin();
         let stdout = io::stdout();
@@ -27,7 +34,7 @@ pub fn spawn_user_input_handler(client: Arc<Mutex<Client>>) -> JoinHandle<CrateR
         stdout.flush().await?;
 
         while let Ok(Some(line)) = reader.next_line().await {
-            match handle_new_line(client.clone(), &line).await {
+            match handle_new_line(client.clone(), &line, rollup_state).await {
                 Ok(Command::Exit) => {
                     info!("Exiting CLI");
                     break;
@@ -48,7 +55,11 @@ pub fn spawn_user_input_handler(client: Arc<Mutex<Client>>) -> JoinHandle<CrateR
     })
 }
 
-async fn handle_new_line(client: Arc<Mutex<Client>>, line: &str) -> CrateResult<Command> {
+async fn handle_new_line(
+    client: Arc<Mutex<Client>>,
+    line: &str,
+    mut rollup_state: impl RollupStateTrait + MockRollupStateTrait + Sync + Send + Copy + 'static,
+) -> CrateResult<Command> {
     let command: Command = line.trim().try_into()?;
 
     match command {
@@ -64,6 +75,22 @@ async fn handle_new_line(client: Arc<Mutex<Client>>, line: &str) -> CrateResult<
         Command::SendBatchToServer => client.lock().await.send_transaction_batch().await?,
         Command::PrintBalance => {
             println!("Balance: {}", client.lock().await.wallet.balance);
+        }
+        Command::Deposit(amount) => {
+            let public_key = client.lock().await.wallet.public_key.clone();
+            rollup_state.add_deposit(&public_key, amount).await?;
+
+            let prev_balance = client.lock().await.wallet.balance;
+            tokio::time::sleep(std::time::Duration::from_secs(
+                TESTING_WALLET_AUTOMATIC_SYNC_RATE_SECONDS + 1,
+            ))
+            .await;
+            let new_balance = client.lock().await.wallet.balance;
+
+            println!(
+                "Deposited {} into account, balance went from {} to {}",
+                amount, prev_balance, new_balance
+            );
         }
         _ => {
             return Err(anyhow!("Invalid command"));

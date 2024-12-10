@@ -19,7 +19,6 @@ impl<'de> Deserialize<'de> for BlsPublicKeyWrapper {
     where
         D: serde::Deserializer<'de>,
     {
-        println!("deserializing");
         let s = String::deserialize(deserializer)?;
         let formatted_string = format!("\"{}\"", s);
 

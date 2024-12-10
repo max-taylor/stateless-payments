@@ -6,6 +6,7 @@ pub enum Command {
     AppendTransactionToBatch(BlsPublicKey, u64),
     SendBatchToServer,
     PrintBalance,
+    Deposit(u64),
     Exit,
 }
 
@@ -36,6 +37,18 @@ impl TryFrom<&str> for Command {
                 let amount = parts[2].parse::<u64>()?;
 
                 Ok(Command::AppendTransactionToBatch(public_key, amount))
+            }
+            "deposit" => {
+                if parts.len() != 2 {
+                    return Err(anyhow!(format!(
+                        "Invalid number of arguments for deposit, expected 2 got {}",
+                        parts.len()
+                    )));
+                }
+
+                let amount = parts[1].parse::<u64>()?;
+
+                Ok(Command::Deposit(amount))
             }
             "send_batch" => Ok(Command::SendBatchToServer),
             "balance" => Ok(Command::PrintBalance),

@@ -40,31 +40,39 @@ pub struct Wallet {
 struct WalletPersistState {
     pub balance_proof: BalanceProof,
     pub private_key: BlsSecretKeyWrapper,
+    pub wallet_name: Option<String>,
+}
+
+impl Into<Wallet> for WalletPersistState {
+    fn into(self) -> Wallet {
+        let private_key: BlsSecretKey = self.private_key.into();
+        let public_key = private_key.public_key();
+
+        Wallet {
+            wallet_name: self.wallet_name,
+            public_key,
+            private_key,
+            balance_proof: self.balance_proof,
+            transaction_batch: TransactionBatch::new(public_key),
+            batch_is_pending: false,
+            balance: 0,
+        }
+    }
 }
 
 impl Wallet {
     pub fn new(wallet_name: Option<String>) -> Wallet {
-        let WalletPersistState {
-            balance_proof,
-            private_key,
-        } = match wallet_name.clone() {
+        match wallet_name.clone() {
             Some(wallet_name) => Wallet::load_wallet_state(&wallet_name).unwrap(),
-            None => WalletPersistState {
-                balance_proof: HashMap::new(),
-                private_key: BlsSecretKey::new().into(),
-            },
-        };
-
-        let private_key: BlsSecretKey = private_key.into();
-
-        Wallet {
-            wallet_name,
-            private_key: private_key.clone(),
-            public_key: private_key.public_key(),
-            balance_proof,
-            transaction_batch: TransactionBatch::new(private_key.public_key()),
-            batch_is_pending: false,
-            balance: 0,
+            None => {
+                info!("Creating new temp wallet");
+                WalletPersistState {
+                    balance_proof: HashMap::new(),
+                    private_key: BlsSecretKey::new().into(),
+                    wallet_name: None,
+                }
+                .into()
+            }
         }
     }
 
@@ -251,22 +259,14 @@ impl Wallet {
     }
 
     /// PERISTENCE
-    fn get_wallet_file(wallet_name: &str) -> CrateResult<std::fs::File> {
+    fn get_wallet_path(wallet_name: &str) -> CrateResult<String> {
         let path = format!("wallet_data/{}.json", wallet_name);
 
         if let Some(parent) = std::path::Path::new(&path).parent() {
             create_dir_all(parent)?;
         }
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(path)?;
-
-        file.lock_exclusive()?;
-
-        Ok(file)
+        Ok(path)
     }
 
     fn save_wallet_state(&self) -> CrateResult<()> {
@@ -279,9 +279,18 @@ impl Wallet {
         let wallet_state = WalletPersistState {
             balance_proof: self.balance_proof.clone(),
             private_key: self.private_key.clone().into(),
+            wallet_name: self.wallet_name.clone(),
         };
 
-        let file = Wallet::get_wallet_file(wallet_name)?;
+        let path = Wallet::get_wallet_path(wallet_name)?;
+
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
+
+        file.lock_exclusive()?;
 
         to_writer(&file, &wallet_state)?;
 
@@ -289,24 +298,37 @@ impl Wallet {
         Ok(())
     }
 
-    fn load_wallet_state(wallet_name: &str) -> CrateResult<WalletPersistState> {
-        let file = Wallet::get_wallet_file(wallet_name)?;
+    fn load_wallet_state(wallet_name: &str) -> CrateResult<Wallet> {
+        info!("Loading wallet with name: {}", wallet_name);
+        let path = Wallet::get_wallet_path(wallet_name)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
 
         let state: WalletPersistState = match from_reader(&file) {
-            Ok(state) => state,
+            Ok(state) => Ok(state),
             Err(e) => {
-                println!("Error reading wallet state: {:?}", e);
-                error!("Error reading wallet state: {:?}", e);
-                WalletPersistState {
-                    balance_proof: HashMap::new(),
-                    private_key: BlsSecretKey::new().into(),
+                if e.is_eof() {
+                    info!("Creating new wallet file for: {}", wallet_name);
+                    Ok(WalletPersistState {
+                        balance_proof: HashMap::new(),
+                        private_key: BlsSecretKey::new().into(),
+                        wallet_name: Some(wallet_name.to_string()),
+                    })
+                } else {
+                    Err(e)
                 }
             }
-        };
+        }?;
 
         file.unlock().expect("Unable to unlock file");
 
-        Ok(state)
+        let wallet = state.into();
+        Wallet::save_wallet_state(&wallet)?;
+
+        Ok(wallet)
     }
 }
 

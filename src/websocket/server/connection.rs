@@ -69,10 +69,8 @@ impl Drop for ConnectionGuard {
         let server_state = self.server_state.clone();
         let public_key = self.public_key.clone();
         task::spawn(async move {
-            println!("Dropping connection: {:?}", public_key);
             // Perform the cleanup asynchronously
             let mut state = server_state.lock().await;
-            println!("Removing connection: {:?}", public_key);
             state.remove_connection(&public_key).await
         });
     }
