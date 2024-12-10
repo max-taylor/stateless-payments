@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::anyhow;
 use fs2::FileExt;
-use log::{error, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer};
 
@@ -109,6 +109,8 @@ impl Wallet {
             .balance
             .checked_sub(amount)
             .ok_or_else(|| anyhow!("Insufficient balance"))?;
+
+        info!("New balance: {}", self.balance);
 
         self.transaction_batch
             .transactions
